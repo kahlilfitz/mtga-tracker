@@ -2,7 +2,7 @@
 
 A local dashboard for tracking your MTG Arena match history, rank, and inventory. No accounts, no cloud — reads directly from the game's log file on macOS.
 
-![Dashboard showing win rate, rank, and inventory](https://placeholder)
+<img width="1333" height="697" alt="Screenshot 2026-06-02 at 5 16 02 PM" src="https://github.com/user-attachments/assets/903b0dd9-7382-4dbd-88c6-acdb7b50d004" />
 
 ## Features
 
