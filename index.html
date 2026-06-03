@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MTG Arena Tracker</title>
+  <style>
+    :root {
+      --bg: #0f0f14;
+      --surface: #1a1a24;
+      --surface2: #22222e;
+      --border: #2e2e40;
+      --accent: #c8a84b;
+      --accent2: #7b5ea7;
+      --green: #4caf7d;
+      --red: #e05252;
+      --text: #e8e8f0;
+      --muted: #7a7a9a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 1.4rem; color: var(--accent); letter-spacing: 0.05em; }
+    header .updated { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
+    .refresh-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--accent); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+    .refresh-btn:hover { background: var(--border); }
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+    .warning { background: #3a2a10; border: 1px solid #6a4a20; border-radius: 10px; padding: 20px 24px; margin-bottom: 32px; }
+    .warning h2 { color: var(--accent); margin-bottom: 8px; }
+    .warning p { color: #c8a875; line-height: 1.6; }
+    .warning code { background: #2a1a08; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+    .card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+    .card .value { font-size: 2rem; font-weight: 700; }
+    .card .sub { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+    .win-rate-bar { height: 6px; background: var(--surface2); border-radius: 3px; margin-top: 10px; overflow: hidden; }
+    .win-rate-fill { height: 100%; background: linear-gradient(90deg, var(--green), #6dd6a0); border-radius: 3px; transition: width 0.6s ease; }
+    .section { margin-bottom: 32px; }
+    .section h2 { font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+    th { background: var(--surface2); font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 16px; text-align: left; }
+    td { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 0.9rem; }
+    tr:hover td { background: var(--surface2); }
+    .result-win { color: var(--green); font-weight: 600; }
+    .result-loss { color: var(--red); font-weight: 600; }
+    .result-unknown { color: var(--muted); }
+    .rank-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .rank-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+    .rank-card .type { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+    .rank-card .tier { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+    .rank-card .step { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+    .draft-picks { font-size: 0.8rem; color: var(--muted); }
+    .no-data { color: var(--muted); font-style: italic; padding: 32px; text-align: center; background: var(--surface); border-radius: 10px; border: 1px solid var(--border); }
+    .wc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .wc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; text-align: center; }
+    .wc .rarity { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+    .wc .count { font-size: 1.6rem; font-weight: 700; }
+    .wc.common .count { color: #aaa; }
+    .wc.uncommon .count { color: #a8d0f0; }
+    .wc.rare .count { color: var(--accent); }
+    .wc.mythic .count { color: #e8824a; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>🃏 MTG Arena Tracker</h1>
+  <span class="updated" id="updated"></span>
+  <button class="refresh-btn" onclick="load()">↻ Refresh</button>
+</header>
+<main id="main">
+  <p style="color:var(--muted);padding:48px;text-align:center;">Loading…</p>
+</main>
+
+<script>
+async function load() {
+  try {
+    const res = await fetch('data.json?t=' + Date.now());
+    const d = await res.json();
+    render(d);
+  } catch (e) {
+    document.getElementById('main').innerHTML =
+      `<div class="warning"><h2>No data found</h2><p>Run <code>python3 parse.py</code> in the tracker folder first, then reload this page.</p></div>`;
+  }
+}
+
+function render(d) {
+  document.getElementById('updated').textContent = 'Updated: ' + new Date(d.generated).toLocaleString();
+  const main = document.getElementById('main');
+  const s = d.summary;
+
+  let html = '';
+
+  if (!d.detailedLogsEnabled) {
+    html += `<div class="warning">
+      <h2>⚠ Detailed Logs Not Enabled</h2>
+      <p>No match data was found in your log file. To enable tracking:<br><br>
+      1. Open MTG Arena<br>
+      2. Go to <strong>Settings → Account</strong><br>
+      3. Enable <strong>Detailed Logs (Verbose)</strong><br>
+      4. Restart the game and play a match<br>
+      5. Run <code>python3 parse.py</code> and refresh this page</p>
+    </div>`;
+  }
+
+  // Summary cards
+  html += `<div class="grid">
+    <div class="card">
+      <div class="label">Win Rate</div>
+      <div class="value" style="color:${s.winRate >= 50 ? 'var(--green)' : 'var(--red)'}">
+        ${s.total ? s.winRate + '%' : '—'}
+      </div>
+      <div class="win-rate-bar"><div class="win-rate-fill" style="width:${s.winRate}%"></div></div>
+      <div class="sub">${s.wins}W – ${s.losses}L of ${s.total} matches</div>
+    </div>
+    <div class="card">
+      <div class="label">Matches Played</div>
+      <div class="value">${s.total}</div>
+    </div>
+    <div class="card">
+      <div class="label">Drafts</div>
+      <div class="value">${d.drafts.length}</div>
+    </div>
+  </div>`;
+
+  // Rank
+  if (d.rank) {
+    const r = d.rank;
+    html += `<div class="section"><h2>Rank</h2>
+    <div class="rank-grid">
+      <div class="rank-card">
+        <div class="type">Constructed</div>
+        <div class="tier">${r.constructed.class} ${r.constructed.level}</div>
+        <div class="step">Step ${r.constructed.step}</div>
+      </div>
+      <div class="rank-card">
+        <div class="type">Limited</div>
+        <div class="tier">${r.limited.class} ${r.limited.level}</div>
+        <div class="step">Step ${r.limited.step}</div>
+      </div>
+    </div></div>`;
+  }
+
+  // Inventory
+  if (d.inventory) {
+    const inv = d.inventory;
+    html += `<div class="section"><h2>Inventory</h2>
+    <div class="grid" style="margin-bottom:16px">
+      <div class="card"><div class="label">Gold</div><div class="value" style="color:var(--accent)">${inv.gold.toLocaleString()}</div></div>
+      <div class="card"><div class="label">Gems</div><div class="value" style="color:var(--accent2)">${inv.gems.toLocaleString()}</div></div>
+    </div>
+    <div class="wc-grid">
+      <div class="wc common"><div class="rarity">Common</div><div class="count">${inv.wcCommon}</div></div>
+      <div class="wc uncommon"><div class="rarity">Uncommon</div><div class="count">${inv.wcUncommon}</div></div>
+      <div class="wc rare"><div class="rarity">Rare</div><div class="count">${inv.wcRare}</div></div>
+      <div class="wc mythic"><div class="rarity">Mythic</div><div class="count">${inv.wcMythic}</div></div>
+    </div></div>`;
+  }
+
+  // Recent matches
+  html += `<div class="section"><h2>Recent Matches</h2>`;
+  if (d.matches.length === 0) {
+    html += `<div class="no-data">No match data yet — enable Detailed Logs and play a match.</div>`;
+  } else {
+    const recent = [...d.matches].reverse().slice(0, 30);
+    html += `<table><thead><tr><th>#</th><th>Result</th><th>Format / Event</th><th>Opponent</th><th>Deck</th></tr></thead><tbody>`;
+    recent.forEach((m, i) => {
+      html += `<tr>
+        <td style="color:var(--muted)">${d.matches.length - i}</td>
+        <td class="result-${m.result}">${m.result.toUpperCase()}</td>
+        <td>${m.format || '—'}</td>
+        <td>${m.opponentName || '—'}</td>
+        <td style="color:var(--muted);font-size:0.8em">${m.deckId?.slice(0,8) || '—'}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+
+  // Drafts
+  html += `<div class="section"><h2>Draft Events</h2>`;
+  if (d.drafts.length === 0) {
+    html += `<div class="no-data">No draft data yet.</div>`;
+  } else {
+    html += `<table><thead><tr><th>Event</th><th>Draft ID</th><th>Picks</th><th>Status</th></tr></thead><tbody>`;
+    d.drafts.forEach(dr => {
+      html += `<tr>
+        <td>${dr.eventId || '—'}</td>
+        <td style="color:var(--muted);font-size:0.8em">${dr.draftId.slice(0,12)}…</td>
+        <td class="draft-picks">${dr.picks.length} picks</td>
+        <td style="color:${dr.completed ? 'var(--green)' : 'var(--accent)'}">${dr.completed ? 'Complete' : 'In Progress'}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+
+  main.innerHTML = html;
+}
+
+load();
+</script>
+</body>
+</html>
