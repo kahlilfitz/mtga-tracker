@@ -32,6 +32,7 @@ def parse_log(lines: list[str]) -> dict:
 
     # Track active match context (Playing state)
     active_match: dict = {}
+    pending_deck_name: str = ""  # set by EventSetDeckV3 right before each match
 
     i = 0
     while i < len(lines):
@@ -78,10 +79,12 @@ def parse_log(lines: list[str]) -> dict:
                     active_match = {
                         "matchId": match_id,
                         "format": event_id,
+                        "deckName": pending_deck_name,
                         "opponentName": opponent_name,
                         "myTeamId": my_team,
                         "timestamp": payload.get("timestamp", ""),
                     }
+                    pending_deck_name = ""
 
                 elif state_type == "MatchGameRoomStateType_MatchCompleted":
                     result_list = (
@@ -119,27 +122,17 @@ def parse_log(lines: list[str]) -> dict:
         req_m = REQUEST_RE.match(line)
         if req_m:
             event_name = req_m.group(1)
-            # Scan for the response JSON (skip stack trace lines)
-            j = i + 1
-            while j < len(lines):
-                stripped = lines[j].strip()
-                if stripped.startswith("{") or stripped.startswith("["):
-                    break
-                # If we hit another [UnityCrossThreadLogger] line, no response
-                if stripped.startswith("[UnityCrossThreadLogger]") or stripped.startswith("[TaskLogger]"):
-                    j = len(lines)  # signal not found
-                    break
-                j += 1
-
-            if j < len(lines):
+            # Capture deck name submitted right before each match
+            if event_name == "EventSetDeckV3":
                 try:
-                    payload = json.loads(lines[j].strip())
-                except json.JSONDecodeError:
-                    payload = None
-
-                pass  # rank/inventory parsed below via direct scan
-
-            i = j + 1
+                    outer = json.loads(req_m.group(2))
+                    req = json.loads(outer.get("request", "{}"))
+                    summary = req.get("Summary", {})
+                    pending_deck_name = summary.get("Name", "")
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            # No per-request response scanning needed — rank/inventory parsed via direct scan below
+            i += 1
             continue
 
         # Also catch bare InventoryInfo lines not attached to a ==> request
