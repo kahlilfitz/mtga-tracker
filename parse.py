@@ -3,22 +3,21 @@
 
 import json
 import re
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 LOG_PATH = Path.home() / "Library/Logs/Wizards Of The Coast/MTGA/Player.log"
 PREV_LOG_PATH = Path.home() / "Library/Logs/Wizards Of The Coast/MTGA/Player-prev.log"
+CARD_DB_DIR = Path.home() / "Library/Application Support/com.wizards.mtga/Downloads/Raw"
 
-# Draft/limited format prefixes
 DRAFT_PREFIXES = ("Draft", "Sealed", "Limited", "PremierDraft", "QuickDraft",
                   "TradDraft", "ArenaLimited", "BotDraft")
 
-# Matches: [UnityCrossThreadLogger]<timestamp>: Match to <playerId>: <EventName>
-MATCH_EVENT_RE = re.compile(
-    r"\[UnityCrossThreadLogger\].*?: Match to (\S+): (\w+)"
-)
-# Matches: [UnityCrossThreadLogger]==> <EventName> {json}
+MATCH_EVENT_RE = re.compile(r"\[UnityCrossThreadLogger\].*?: Match to (\S+): (\w+)")
 REQUEST_RE = re.compile(r"\[UnityCrossThreadLogger\]==>\s+(\w+)\s+(\{.*)")
+
+COLOR_MAP = {"1": "W", "2": "U", "3": "B", "4": "R", "5": "G"}
 
 
 def is_draft_format(fmt: str) -> bool:
@@ -26,17 +25,11 @@ def is_draft_format(fmt: str) -> bool:
 
 
 def format_display(fmt: str) -> str:
-    """Convert internal event name to a human-readable label."""
     if not fmt:
         return "Unknown"
-    # PremierDraft_SOS_20260421 → "Premier Draft · SOS"
-    # ArenaLimitedQualifier_Draft1_20260605 → "Arena Limited Qualifier"
-    # Ladder → "Ladder"
     parts = fmt.split("_")
-    # Strip trailing date-like segment (8 digits)
     if parts and re.fullmatch(r"\d{8}", parts[-1]):
         parts = parts[:-1]
-    # Insert spaces before capital letters in the first segment
     label = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", parts[0])
     if len(parts) > 1 and not re.fullmatch(r"\d+", parts[1]):
         label += f" · {parts[1]}"
@@ -50,6 +43,66 @@ def read_lines(path: Path) -> list[str]:
         return f.readlines()
 
 
+def find_card_db() -> Path | None:
+    if not CARD_DB_DIR.exists():
+        return None
+    for f in CARD_DB_DIR.glob("Raw_CardDatabase_*.mtga"):
+        return f
+    return None
+
+
+def load_card_data(card_ids: set[int]) -> dict[int, dict]:
+    """Query local MTGA card DB for colors and CMC of the given card IDs."""
+    db_path = find_card_db()
+    if not db_path or not card_ids:
+        return {}
+    result = {}
+    try:
+        con = sqlite3.connect(str(db_path))
+        ids_str = ",".join(str(i) for i in card_ids)
+        rows = con.execute(
+            f"SELECT GrpId, Colors, Order_CMCWithXLast, IsToken "
+            f"FROM Cards WHERE GrpId IN ({ids_str})"
+        ).fetchall()
+        con.close()
+        for grp_id, colors_raw, cmc, is_token in rows:
+            color_vals = [c.strip() for c in (colors_raw or "").split(",") if c.strip()]
+            colors = [COLOR_MAP[c] for c in color_vals if c in COLOR_MAP]
+            result[grp_id] = {"colors": colors, "cmc": cmc or 0, "isToken": bool(is_token)}
+    except Exception:
+        pass
+    return result
+
+
+def deck_stats(deck: dict[int, int]) -> dict:
+    """Given {cardId: quantity}, return color and mana curve distributions."""
+    all_ids = set(deck.keys())
+    card_data = load_card_data(all_ids)
+
+    color_counts: dict[str, int] = {"W": 0, "U": 0, "B": 0, "R": 0, "G": 0}
+    curve: dict[int, int] = {}  # cmc → card count (non-land, non-token)
+
+    for card_id, qty in deck.items():
+        info = card_data.get(card_id)
+        if not info or info["isToken"]:
+            continue
+        for color in info["colors"]:
+            if color in color_counts:
+                color_counts[color] += qty
+        # Only count non-land spells in curve (lands have cmc=0 and no colors typically)
+        cmc = info["cmc"]
+        if info["colors"] or cmc > 0:  # skip basic lands (no color, cmc=0)
+            bucket = min(cmc, 7)  # 7+ bucket
+            curve[bucket] = curve.get(bucket, 0) + qty
+
+    # Remove zero-count colors
+    color_counts = {k: v for k, v in color_counts.items() if v > 0}
+    # Normalise curve keys to strings for JSON
+    curve_out = {str(k): v for k, v in sorted(curve.items())}
+
+    return {"colors": color_counts, "curve": curve_out}
+
+
 def parse_log(lines: list[str]) -> dict:
     my_player_id: str | None = None
     matches: list[dict] = []
@@ -58,14 +111,14 @@ def parse_log(lines: list[str]) -> dict:
 
     active_match: dict = {}
     pending_deck_name: str = ""
-    # Persist deck name per event so all games in a draft event show it
+    pending_deck_list: dict[int, int] = {}  # cardId → qty from EventSetDeckV3
     deck_by_event: dict[str, str] = {}
+    deck_list_by_event: dict[str, dict[int, int]] = {}
 
     i = 0
     while i < len(lines):
         line = lines[i].rstrip()
 
-        # --- Match events (server → client) ---
         m = MATCH_EVENT_RE.match(line)
         if m:
             target_player = m.group(1)
@@ -101,13 +154,12 @@ def parse_log(lines: list[str]) -> dict:
                         else:
                             opponent_name = p.get("playerName", "")
 
-                    # Resolve deck name: pending > stored per-event > empty
-                    deck_name = pending_deck_name
-                    if not deck_name and event_id:
-                        deck_name = deck_by_event.get(event_id, "")
-                    # Store it so future games in this event inherit it
+                    deck_name = pending_deck_name or deck_by_event.get(event_id, "")
+                    deck_list = pending_deck_list or deck_list_by_event.get(event_id, {})
                     if deck_name and event_id:
                         deck_by_event[event_id] = deck_name
+                    if deck_list and event_id:
+                        deck_list_by_event[event_id] = deck_list
 
                     active_match = {
                         "matchId": match_id,
@@ -118,11 +170,10 @@ def parse_log(lines: list[str]) -> dict:
                         "timestamp": payload.get("timestamp", ""),
                     }
                     pending_deck_name = ""
+                    pending_deck_list = {}
 
                 elif state_type == "MatchGameRoomStateType_MatchCompleted":
-                    result_list = (
-                        gri.get("finalMatchResult", {}).get("resultList", [])
-                    )
+                    result_list = gri.get("finalMatchResult", {}).get("resultList", [])
                     result = "unknown"
                     for r in result_list:
                         if r.get("scope") == "MatchScope_Match":
@@ -148,27 +199,33 @@ def parse_log(lines: list[str]) -> dict:
             i = j + 1
             continue
 
-        # --- Outgoing requests ---
         req_m = REQUEST_RE.match(line)
         if req_m:
-            event_name = req_m.group(1)
-            if event_name == "EventSetDeckV3":
+            en = req_m.group(1)
+            if en == "EventSetDeckV3":
                 try:
                     outer = json.loads(req_m.group(2))
                     req = json.loads(outer.get("request", "{}"))
                     summary = req.get("Summary", {})
                     name = summary.get("Name", "")
                     mtga_event = req.get("EventName", "")
+                    raw_deck = req.get("Deck", {})
+                    main_deck = raw_deck.get("MainDeck", [])
+                    deck_list = {entry["cardId"]: entry["quantity"]
+                                 for entry in main_deck if "cardId" in entry}
                     if name:
                         pending_deck_name = name
                         if mtga_event:
                             deck_by_event[mtga_event] = name
+                    if deck_list:
+                        pending_deck_list = deck_list
+                        if mtga_event:
+                            deck_list_by_event[mtga_event] = deck_list
                 except (json.JSONDecodeError, KeyError):
                     pass
             i += 1
             continue
 
-        # Bare InventoryInfo lines
         if line.strip().startswith('{"InventoryInfo"'):
             try:
                 payload = json.loads(line.strip())
@@ -198,7 +255,6 @@ def parse_log(lines: list[str]) -> dict:
             continue
         if not isinstance(payload, dict):
             continue
-
         if "constructedClass" in payload:
             rank = {
                 "constructed": {
@@ -216,7 +272,6 @@ def parse_log(lines: list[str]) -> dict:
                     "losses": payload.get("limitedMatchesLost", 0),
                 },
             }
-
         inv_info = payload.get("InventoryInfo")
         if inv_info:
             inventory = {
@@ -233,11 +288,24 @@ def parse_log(lines: list[str]) -> dict:
         "matches": matches,
         "rank": rank,
         "inventory": inventory,
+        "deck_list_by_event": deck_list_by_event,
     }
 
 
-def build_drafts(matches: list[dict]) -> list[dict]:
-    """Group draft/limited matches by event into draft summaries."""
+def longestStreak(matches):
+    best = {"win": 0, "loss": 0}
+    cur = {"win": 0, "loss": 0}
+    for m in matches:
+        if m["result"] == "win":
+            cur["win"] += 1; cur["loss"] = 0
+        else:
+            cur["loss"] += 1; cur["win"] = 0
+        best["win"] = max(best["win"], cur["win"])
+        best["loss"] = max(best["loss"], cur["loss"])
+    return best
+
+
+def build_drafts(matches: list[dict], deck_list_by_event: dict) -> list[dict]:
     events: dict[str, dict] = {}
     for m in matches:
         fmt = m.get("format", "")
@@ -261,12 +329,18 @@ def build_drafts(matches: list[dict]) -> list[dict]:
             e["losses"] += 1
         e["matches"].append(m)
 
-    # Sort by first match timestamp descending
-    def first_ts(e):
-        ts = e["matches"][0].get("timestamp", "")
-        return ts
+    # Add card stats for each event
+    for fmt, event in events.items():
+        deck_list = deck_list_by_event.get(fmt, {})
+        if deck_list:
+            event["cardStats"] = deck_stats(deck_list)
+        else:
+            event["cardStats"] = None
+        streak = longestStreak(event["matches"])
+        event["bestWinStreak"] = streak["win"]
+        event["worstLossStreak"] = streak["loss"]
 
-    return sorted(events.values(), key=first_ts, reverse=True)
+    return sorted(events.values(), key=lambda e: e["matches"][0].get("timestamp", ""), reverse=True)
 
 
 def build_data() -> dict:
@@ -276,7 +350,7 @@ def build_data() -> dict:
     matches = parsed["matches"]
     wins = sum(1 for m in matches if m["result"] == "win")
     losses = sum(1 for m in matches if m["result"] == "loss")
-    drafts = build_drafts(matches)
+    drafts = build_drafts(matches, parsed["deck_list_by_event"])
 
     return {
         "generated": datetime.now().isoformat(),
@@ -304,7 +378,9 @@ if __name__ == "__main__":
     if data["drafts"]:
         print(f"Drafts: {len(data['drafts'])} events")
         for d in data["drafts"]:
-            print(f"  {d['displayName']:35} {d['deckName'] or '(no deck name)':25} {d['wins']}W-{d['losses']}L")
+            cs = d.get("cardStats")
+            colors = "/".join(f"{v}{k}" for k, v in cs["colors"].items()) if cs else "no card data"
+            print(f"  {d['displayName']:35} {d['wins']}W-{d['losses']}L  {colors}")
     if data["inventory"]:
         inv = data["inventory"]
         print(f"Inventory: {inv['gold']}g {inv['gems']} gems | WC: {inv['wcCommon']}C {inv['wcUncommon']}U {inv['wcRare']}R {inv['wcMythic']}M")

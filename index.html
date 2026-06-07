@@ -187,15 +187,61 @@ function longestStreak(matches) {
   return best;
 }
 
+const COLOR_META = {
+  W: { label: 'White', bg: '#f5f0d0', text: '#5a4a00', symbol: '☀' },
+  U: { label: 'Blue',  bg: '#b0d4f0', text: '#0a2a50', symbol: '💧' },
+  B: { label: 'Black', bg: '#4a4060', text: '#d0c0f0', symbol: '💀' },
+  R: { label: 'Red',   bg: '#f0845a', text: '#3a0a00', symbol: '🔥' },
+  G: { label: 'Green', bg: '#6ab870', text: '#0a2a0a', symbol: '🌲' },
+};
+
+function renderColorBar(colors) {
+  if (!colors || Object.keys(colors).length === 0) return '';
+  const total = Object.values(colors).reduce((a, b) => a + b, 0);
+  const order = ['W', 'U', 'B', 'R', 'G'];
+  const segments = order.filter(c => colors[c]).map(c => {
+    const pct = Math.round(colors[c] / total * 100);
+    const m = COLOR_META[c];
+    return `<div style="flex:${colors[c]};background:${m.bg};display:flex;align-items:center;justify-content:center;
+      font-size:0.7rem;font-weight:700;color:${m.text};gap:3px;min-width:28px" title="${m.label}: ${colors[c]} cards">
+      ${m.symbol} ${colors[c]}
+    </div>`;
+  });
+  return `<div style="display:flex;border-radius:6px;overflow:hidden;height:28px;margin-bottom:12px">${segments.join('')}</div>`;
+}
+
+function renderCurve(curve) {
+  if (!curve || Object.keys(curve).length === 0) return '';
+  const maxVal = Math.max(...Object.values(curve));
+  const labels = ['0','1','2','3','4','5','6','7+'];
+  const bars = labels.map((lbl, idx) => {
+    const key = String(idx);
+    const val = curve[key] || 0;
+    const pct = maxVal ? Math.round(val / maxVal * 100) : 0;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">
+      <div style="font-size:0.7rem;color:var(--muted)">${val || ''}</div>
+      <div style="width:100%;background:var(--surface2);border-radius:3px 3px 0 0;height:60px;display:flex;align-items:flex-end">
+        <div style="width:100%;height:${pct}%;background:var(--accent2);border-radius:3px 3px 0 0;min-height:${val?2:0}px"></div>
+      </div>
+      <div style="font-size:0.7rem;color:var(--muted)">${lbl}</div>
+    </div>`;
+  });
+  return `<div>
+    <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Mana Curve</div>
+    <div style="display:flex;gap:4px;align-items:flex-end">${bars.join('')}</div>
+  </div>`;
+}
+
 function renderDraftCard(dr) {
   const total = dr.wins + dr.losses;
   const wr = total ? Math.round(dr.wins / total * 100) : 0;
-  const streak = longestStreak(dr.matches);
   const recordColor = dr.wins > dr.losses ? 'var(--green)' : dr.losses > dr.wins ? 'var(--red)' : 'var(--text)';
 
   const trail = dr.matches.map(m =>
     `<div class="game-dot ${m.result}" title="${m.result === 'win' ? 'W' : 'L'} vs ${m.opponentName}">${m.result === 'win' ? 'W' : 'L'}</div>`
   ).join('');
+
+  const cs = dr.cardStats;
 
   return `<div class="draft-card">
     <div class="draft-card-header">
@@ -209,23 +255,13 @@ function renderDraftCard(dr) {
       </div>
     </div>
     <div class="draft-stats-grid">
-      <div class="draft-stat">
-        <div class="ds-label">Games</div>
-        <div class="ds-val">${total}</div>
-      </div>
-      <div class="draft-stat">
-        <div class="ds-label">Win Rate</div>
-        <div class="ds-val" style="color:${wr >= 50 ? 'var(--green)' : 'var(--red)'}">${wr}%</div>
-      </div>
-      <div class="draft-stat">
-        <div class="ds-label">Best Win Streak</div>
-        <div class="ds-val" style="color:var(--green)">${streak.win}</div>
-      </div>
-      <div class="draft-stat">
-        <div class="ds-label">Worst Loss Streak</div>
-        <div class="ds-val" style="color:var(--red)">${streak.loss}</div>
-      </div>
+      <div class="draft-stat"><div class="ds-label">Games</div><div class="ds-val">${total}</div></div>
+      <div class="draft-stat"><div class="ds-label">Win Rate</div><div class="ds-val" style="color:${wr >= 50 ? 'var(--green)' : 'var(--red)'}">${wr}%</div></div>
+      <div class="draft-stat"><div class="ds-label">Best Win Streak</div><div class="ds-val" style="color:var(--green)">${dr.bestWinStreak}</div></div>
+      <div class="draft-stat"><div class="ds-label">Worst Loss Streak</div><div class="ds-val" style="color:var(--red)">${dr.worstLossStreak}</div></div>
     </div>
+    ${cs ? renderColorBar(cs.colors) : ''}
+    ${cs ? `<div style="margin-bottom:16px">${renderCurve(cs.curve)}</div>` : ''}
     <div style="font-size:0.7rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.08em">Game Trail</div>
     <div class="game-trail">${trail}</div>
   </div>`;
