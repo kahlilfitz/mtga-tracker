@@ -37,7 +37,12 @@
     .win-rate-bar { height: 6px; background: var(--surface2); border-radius: 3px; margin-top: 10px; overflow: hidden; }
     .win-rate-fill { height: 100%; background: linear-gradient(90deg, var(--green), #6dd6a0); border-radius: 3px; transition: width 0.6s ease; }
     .section { margin-bottom: 32px; }
-    .section h2 { font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .section-header h2 { font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+    .filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .filter-tab { background: var(--surface2); border: 1px solid var(--border); color: var(--muted); padding: 4px 12px; border-radius: 20px; cursor: pointer; font-size: 0.78rem; transition: all 0.15s; }
+    .filter-tab:hover { border-color: var(--accent); color: var(--text); }
+    .filter-tab.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
     table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
     th { background: var(--surface2); font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 16px; text-align: left; }
     td { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 0.9rem; }
@@ -50,7 +55,6 @@
     .rank-card .type { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
     .rank-card .tier { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
     .rank-card .step { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
-    .draft-picks { font-size: 0.8rem; color: var(--muted); }
     .no-data { color: var(--muted); font-style: italic; padding: 32px; text-align: center; background: var(--surface); border-radius: 10px; border: 1px solid var(--border); }
     .wc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
     .wc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; text-align: center; }
@@ -60,6 +64,20 @@
     .wc.uncommon .count { color: #a8d0f0; }
     .wc.rare .count { color: var(--accent); }
     .wc.mythic .count { color: #e8824a; }
+    /* Draft cards */
+    .draft-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+    .draft-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+    .draft-title { font-size: 1rem; font-weight: 600; margin-bottom: 3px; }
+    .draft-deck { font-size: 0.8rem; color: var(--muted); }
+    .draft-record { font-size: 1.6rem; font-weight: 700; }
+    .draft-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .draft-stat { background: var(--surface2); border-radius: 8px; padding: 10px 14px; }
+    .draft-stat .ds-label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+    .draft-stat .ds-val { font-size: 1.1rem; font-weight: 600; }
+    .game-trail { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
+    .game-dot { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; }
+    .game-dot.win { background: rgba(76,175,125,0.2); border: 1.5px solid var(--green); color: var(--green); }
+    .game-dot.loss { background: rgba(224,82,82,0.2); border: 1.5px solid var(--red); color: var(--red); }
   </style>
 </head>
 <body>
@@ -73,15 +91,144 @@
 </main>
 
 <script>
+let _data = null;
+let _filter = 'all';
+
 async function load() {
   try {
     const res = await fetch('data.json?t=' + Date.now());
-    const d = await res.json();
-    render(d);
+    _data = await res.json();
+    render(_data);
   } catch (e) {
     document.getElementById('main').innerHTML =
       `<div class="warning"><h2>No data found</h2><p>Run <code>python3 parse.py</code> in the tracker folder first, then reload this page.</p></div>`;
   }
+}
+
+function setFilter(f) {
+  _filter = f;
+  renderMatches(_data);
+  document.querySelectorAll('.filter-tab').forEach(t => t.classList.toggle('active', t.dataset.f === f));
+}
+
+function formatLabel(fmt) {
+  if (!fmt) return 'Unknown';
+  const map = {
+    'Ladder': 'Ladder', 'Alchemy_Ladder': 'Alchemy', 'Traditional_Ladder': 'Trad. Ladder',
+    'Historic_Ladder': 'Historic', 'Alchemy_Play': 'Alchemy Play', 'Play': 'Play',
+    'DirectGame': 'Direct', 'Traditional_Alchemy_Ladder': 'Trad. Alchemy',
+  };
+  if (map[fmt]) return map[fmt];
+  if (fmt.startsWith('PremierDraft')) return 'Premier Draft';
+  if (fmt.startsWith('QuickDraft')) return 'Quick Draft';
+  if (fmt.startsWith('ArenaLimited')) return 'Limited Event';
+  if (fmt.startsWith('TradDraft')) return 'Trad. Draft';
+  const parts = fmt.split('_');
+  return parts[0].replace(/([a-z])([A-Z])/g, '$1 $2');
+}
+
+function groupKey(fmt) {
+  if (!fmt) return 'other';
+  if (fmt.startsWith('PremierDraft') || fmt.startsWith('QuickDraft') ||
+      fmt.startsWith('ArenaLimited') || fmt.startsWith('TradDraft') ||
+      fmt.startsWith('Draft') || fmt.startsWith('Sealed')) return 'draft';
+  if (fmt === 'DirectGame') return 'direct';
+  if (fmt.includes('Alchemy')) return 'alchemy';
+  if (fmt.includes('Historic')) return 'historic';
+  return 'ladder';
+}
+
+function buildFilters(matches) {
+  const groups = new Set(matches.map(m => groupKey(m.format)));
+  const order = ['all', 'ladder', 'alchemy', 'historic', 'draft', 'direct', 'other'];
+  const labels = { all:'All', ladder:'Ladder', alchemy:'Alchemy', historic:'Historic', draft:'Draft / Limited', direct:'Direct', other:'Other' };
+  return order.filter(g => g === 'all' || groups.has(g)).map(g => ({ key: g, label: labels[g] }));
+}
+
+function renderMatches(d) {
+  const container = document.getElementById('matches-section');
+  if (!container) return;
+  const allMatches = [...d.matches].reverse();
+  const filtered = _filter === 'all' ? allMatches : allMatches.filter(m => groupKey(m.format) === _filter);
+  const wins = filtered.filter(m => m.result === 'win').length;
+  const losses = filtered.filter(m => m.result === 'loss').length;
+  const wr = filtered.length ? Math.round(wins / filtered.length * 100) : 0;
+
+  let html = '';
+  if (_filter !== 'all') {
+    html += `<div style="font-size:0.85rem;color:var(--muted);margin-bottom:12px">${wins}W – ${losses}L · ${wr}% win rate · ${filtered.length} matches</div>`;
+  }
+  if (filtered.length === 0) {
+    html += `<div class="no-data">No matches for this filter.</div>`;
+  } else {
+    html += `<table><thead><tr><th>#</th><th>Result</th><th>Type</th><th>Opponent</th><th>Deck</th></tr></thead><tbody>`;
+    filtered.slice(0, 50).forEach((m, i) => {
+      html += `<tr>
+        <td style="color:var(--muted)">${filtered.length - i}</td>
+        <td class="result-${m.result}">${m.result.toUpperCase()}</td>
+        <td style="color:var(--muted);font-size:0.8rem">${formatLabel(m.format)}</td>
+        <td>${m.opponentName || '—'}</td>
+        <td style="color:var(--muted)">${m.deckName || '—'}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  container.innerHTML = html;
+}
+
+function longestStreak(matches) {
+  let best = { win: 0, loss: 0 }, cur = { win: 0, loss: 0 };
+  for (const m of matches) {
+    if (m.result === 'win') { cur.win++; cur.loss = 0; }
+    else { cur.loss++; cur.win = 0; }
+    best.win = Math.max(best.win, cur.win);
+    best.loss = Math.max(best.loss, cur.loss);
+  }
+  return best;
+}
+
+function renderDraftCard(dr) {
+  const total = dr.wins + dr.losses;
+  const wr = total ? Math.round(dr.wins / total * 100) : 0;
+  const streak = longestStreak(dr.matches);
+  const recordColor = dr.wins > dr.losses ? 'var(--green)' : dr.losses > dr.wins ? 'var(--red)' : 'var(--text)';
+
+  const trail = dr.matches.map(m =>
+    `<div class="game-dot ${m.result}" title="${m.result === 'win' ? 'W' : 'L'} vs ${m.opponentName}">${m.result === 'win' ? 'W' : 'L'}</div>`
+  ).join('');
+
+  return `<div class="draft-card">
+    <div class="draft-card-header">
+      <div>
+        <div class="draft-title">${dr.displayName}</div>
+        <div class="draft-deck">${dr.deckName || '<em>no deck name</em>'}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="draft-record" style="color:${recordColor}">${dr.wins}–${dr.losses}</div>
+        <div style="font-size:0.75rem;color:var(--muted)">${wr}% win rate</div>
+      </div>
+    </div>
+    <div class="draft-stats-grid">
+      <div class="draft-stat">
+        <div class="ds-label">Games</div>
+        <div class="ds-val">${total}</div>
+      </div>
+      <div class="draft-stat">
+        <div class="ds-label">Win Rate</div>
+        <div class="ds-val" style="color:${wr >= 50 ? 'var(--green)' : 'var(--red)'}">${wr}%</div>
+      </div>
+      <div class="draft-stat">
+        <div class="ds-label">Best Win Streak</div>
+        <div class="ds-val" style="color:var(--green)">${streak.win}</div>
+      </div>
+      <div class="draft-stat">
+        <div class="ds-label">Worst Loss Streak</div>
+        <div class="ds-val" style="color:var(--red)">${streak.loss}</div>
+      </div>
+    </div>
+    <div style="font-size:0.7rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.08em">Game Trail</div>
+    <div class="game-trail">${trail}</div>
+  </div>`;
 }
 
 function render(d) {
@@ -118,7 +265,7 @@ function render(d) {
       <div class="value">${s.total}</div>
     </div>
     <div class="card">
-      <div class="label">Drafts</div>
+      <div class="label">Draft Events</div>
       <div class="value">${d.drafts.length}</div>
     </div>
   </div>`;
@@ -131,12 +278,12 @@ function render(d) {
       <div class="rank-card">
         <div class="type">Constructed</div>
         <div class="tier">${r.constructed.class} ${r.constructed.level}</div>
-        <div class="step">Step ${r.constructed.step}</div>
+        <div class="step">Step ${r.constructed.step} · ${r.constructed.wins}W ${r.constructed.losses}L this season</div>
       </div>
       <div class="rank-card">
         <div class="type">Limited</div>
         <div class="tier">${r.limited.class} ${r.limited.level}</div>
-        <div class="step">Step ${r.limited.step}</div>
+        <div class="step">Step ${r.limited.step} · ${r.limited.wins}W ${r.limited.losses}L this season</div>
       </div>
     </div></div>`;
   }
@@ -157,60 +304,29 @@ function render(d) {
     </div></div>`;
   }
 
-  // Recent matches
-  html += `<div class="section"><h2>Recent Matches</h2>`;
-  if (d.matches.length === 0) {
-    html += `<div class="no-data">No match data yet — enable Detailed Logs and play a match.</div>`;
-  } else {
-    const recent = [...d.matches].reverse().slice(0, 30);
-    html += `<table><thead><tr><th>#</th><th>Result</th><th>Format / Event</th><th>Opponent</th><th>Deck</th></tr></thead><tbody>`;
-    recent.forEach((m, i) => {
-      html += `<tr>
-        <td style="color:var(--muted)">${d.matches.length - i}</td>
-        <td class="result-${m.result}">${m.result.toUpperCase()}</td>
-        <td>${m.format || '—'}</td>
-        <td>${m.opponentName || '—'}</td>
-        <td style="color:var(--muted)">${m.deckName || '—'}</td>
-      </tr>`;
-    });
-    html += `</tbody></table>`;
+  // Draft events
+  if (d.drafts.length > 0) {
+    html += `<div class="section"><div class="section-header"><h2>Draft Events</h2></div>`;
+    html += d.drafts.map(renderDraftCard).join('');
+    html += `</div>`;
   }
-  html += `</div>`;
 
-  // Drafts
-  html += `<div class="section"><h2>Draft Events</h2>`;
-  if (d.drafts.length === 0) {
-    html += `<div class="no-data">No draft events found in log.</div>`;
-  } else {
-    d.drafts.forEach(dr => {
-      const total = dr.wins + dr.losses;
-      const wr = total ? Math.round(dr.wins / total * 100) : 0;
-      html += `<div class="card" style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-          <div>
-            <div style="font-size:1rem;font-weight:600">${dr.displayName}</div>
-            <div style="font-size:0.8rem;color:var(--muted);margin-top:2px">${dr.deckName || '<span style="font-style:italic">no deck name</span>'}</div>
-          </div>
-          <div style="text-align:right">
-            <span class="${dr.wins > dr.losses ? 'result-win' : dr.losses > dr.wins ? 'result-loss' : ''}" style="font-size:1.2rem;font-weight:700">${dr.wins}–${dr.losses}</span>
-            <div style="font-size:0.75rem;color:var(--muted)">${wr}% win rate</div>
-          </div>
-        </div>
-        <table style="margin:0"><thead><tr><th>#</th><th>Result</th><th>Opponent</th><th>Deck</th></tr></thead><tbody>`;
-      dr.matches.forEach((m, idx) => {
-        html += `<tr>
-          <td style="color:var(--muted)">${idx + 1}</td>
-          <td class="result-${m.result}">${m.result.toUpperCase()}</td>
-          <td>${m.opponentName || '—'}</td>
-          <td style="color:var(--muted)">${m.deckName || '—'}</td>
-        </tr>`;
-      });
-      html += `</tbody></table></div>`;
-    });
-  }
-  html += `</div>`;
+  // Recent matches with filter tabs
+  const filters = buildFilters(d.matches);
+  const tabsHtml = filters.map(f =>
+    `<button class="filter-tab${_filter === f.key ? ' active' : ''}" data-f="${f.key}" onclick="setFilter('${f.key}')">${f.label}</button>`
+  ).join('');
+
+  html += `<div class="section">
+    <div class="section-header">
+      <h2>Recent Matches</h2>
+      <div class="filter-tabs">${tabsHtml}</div>
+    </div>
+    <div id="matches-section"></div>
+  </div>`;
 
   main.innerHTML = html;
+  renderMatches(d);
 }
 
 load();
