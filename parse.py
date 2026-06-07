@@ -111,9 +111,13 @@ def parse_log(lines: list[str]) -> dict:
 
     active_match: dict = {}
     pending_deck_name: str = ""
+    pending_deck_id: str = ""
     pending_deck_list: dict[int, int] = {}  # cardId → qty from EventSetDeckV3
     deck_by_event: dict[str, str] = {}
+    deck_id_by_event: dict[str, str] = {}
     deck_list_by_event: dict[str, dict[int, int]] = {}
+    # Per deck_id (individual run) card lists
+    deck_list_by_id: dict[str, dict[int, int]] = {}
 
     i = 0
     while i < len(lines):
@@ -155,21 +159,28 @@ def parse_log(lines: list[str]) -> dict:
                             opponent_name = p.get("playerName", "")
 
                     deck_name = pending_deck_name or deck_by_event.get(event_id, "")
+                    deck_id = pending_deck_id or deck_id_by_event.get(event_id, "")
                     deck_list = pending_deck_list or deck_list_by_event.get(event_id, {})
                     if deck_name and event_id:
                         deck_by_event[event_id] = deck_name
+                    if deck_id and event_id:
+                        deck_id_by_event[event_id] = deck_id
                     if deck_list and event_id:
                         deck_list_by_event[event_id] = deck_list
+                    if deck_id and deck_list:
+                        deck_list_by_id[deck_id] = deck_list
 
                     active_match = {
                         "matchId": match_id,
                         "format": event_id,
                         "deckName": deck_name,
+                        "deckId": deck_id,
                         "opponentName": opponent_name,
                         "myTeamId": my_team,
                         "timestamp": payload.get("timestamp", ""),
                     }
                     pending_deck_name = ""
+                    pending_deck_id = ""
                     pending_deck_list = {}
 
                 elif state_type == "MatchGameRoomStateType_MatchCompleted":
@@ -213,14 +224,21 @@ def parse_log(lines: list[str]) -> dict:
                     main_deck = raw_deck.get("MainDeck", [])
                     deck_list = {entry["cardId"]: entry["quantity"]
                                  for entry in main_deck if "cardId" in entry}
+                    d_id = summary.get("DeckId", "")
                     if name:
                         pending_deck_name = name
                         if mtga_event:
                             deck_by_event[mtga_event] = name
+                    if d_id:
+                        pending_deck_id = d_id
+                        if mtga_event:
+                            deck_id_by_event[mtga_event] = d_id
                     if deck_list:
                         pending_deck_list = deck_list
                         if mtga_event:
                             deck_list_by_event[mtga_event] = deck_list
+                        if d_id:
+                            deck_list_by_id[d_id] = deck_list
                 except (json.JSONDecodeError, KeyError):
                     pass
             i += 1
@@ -289,6 +307,7 @@ def parse_log(lines: list[str]) -> dict:
         "rank": rank,
         "inventory": inventory,
         "deck_list_by_event": deck_list_by_event,
+        "deck_list_by_id": deck_list_by_id,
     }
 
 
@@ -305,42 +324,71 @@ def longestStreak(matches):
     return best
 
 
-def build_drafts(matches: list[dict], deck_list_by_event: dict) -> list[dict]:
-    events: dict[str, dict] = {}
+def build_drafts(matches: list[dict], deck_list_by_event: dict, deck_list_by_id: dict) -> list[dict]:
+    """Build one record per individual draft run (unique deckId within a format)."""
+    # Key: (format, deckId) — deckId="" for runs where we couldn't identify it
+    runs: dict[tuple, dict] = {}
+    run_order: list[tuple] = []  # preserve insertion order
+
     for m in matches:
         fmt = m.get("format", "")
         if not is_draft_format(fmt):
             continue
-        if fmt not in events:
-            events[fmt] = {
+        deck_id = m.get("deckId", "")
+        key = (fmt, deck_id)
+        if key not in runs:
+            runs[key] = {
                 "eventId": fmt,
+                "deckId": deck_id,
                 "displayName": format_display(fmt),
-                "deckName": "",
+                "deckName": m.get("deckName", ""),
                 "wins": 0,
                 "losses": 0,
                 "matches": [],
             }
-        e = events[fmt]
-        if m.get("deckName") and not e["deckName"]:
-            e["deckName"] = m["deckName"]
+            run_order.append(key)
+        r = runs[key]
+        if m.get("deckName") and not r["deckName"]:
+            r["deckName"] = m["deckName"]
         if m["result"] == "win":
-            e["wins"] += 1
+            r["wins"] += 1
         elif m["result"] == "loss":
-            e["losses"] += 1
-        e["matches"].append(m)
+            r["losses"] += 1
+        r["matches"].append(m)
 
-    # Add card stats for each event
-    for fmt, event in events.items():
-        deck_list = deck_list_by_event.get(fmt, {})
-        if deck_list:
-            event["cardStats"] = deck_stats(deck_list)
-        else:
-            event["cardStats"] = None
-        streak = longestStreak(event["matches"])
-        event["bestWinStreak"] = streak["win"]
-        event["worstLossStreak"] = streak["loss"]
+    # Add card stats and streaks per run
+    for key, run in runs.items():
+        fmt, deck_id = key
+        deck_list = deck_list_by_id.get(deck_id) or deck_list_by_event.get(fmt, {})
+        run["cardStats"] = deck_stats(deck_list) if deck_list else None
+        streak = longestStreak(run["matches"])
+        run["bestWinStreak"] = streak["win"]
+        run["worstLossStreak"] = streak["loss"]
 
-    return sorted(events.values(), key=lambda e: e["matches"][0].get("timestamp", ""), reverse=True)
+    # Sort newest first by first match timestamp
+    sorted_runs = sorted(
+        runs.values(),
+        key=lambda r: r["matches"][0].get("timestamp", ""),
+        reverse=True,
+    )
+
+    # Number runs within each event (Run 1 = most recent)
+    event_counters: dict[str, int] = {}
+    for run in sorted_runs:
+        fmt = run["eventId"]
+        event_counters[fmt] = event_counters.get(fmt, 0) + 1
+
+    # Assign numbers oldest→newest so Run 1 is the first ever draft of that event
+    event_run_totals = dict(event_counters)
+    event_assign: dict[str, int] = {}
+    for run in reversed(sorted_runs):
+        fmt = run["eventId"]
+        event_assign[fmt] = event_assign.get(fmt, 0) + 1
+        total = event_run_totals[fmt]
+        if total > 1:
+            run["displayName"] = f"{run['displayName']} — Run {event_assign[fmt]}"
+
+    return sorted_runs
 
 
 def build_data() -> dict:
@@ -350,7 +398,7 @@ def build_data() -> dict:
     matches = parsed["matches"]
     wins = sum(1 for m in matches if m["result"] == "win")
     losses = sum(1 for m in matches if m["result"] == "loss")
-    drafts = build_drafts(matches, parsed["deck_list_by_event"])
+    drafts = build_drafts(matches, parsed["deck_list_by_event"], parsed["deck_list_by_id"])
 
     return {
         "generated": datetime.now().isoformat(),
