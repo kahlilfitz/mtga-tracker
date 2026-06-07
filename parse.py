@@ -51,8 +51,11 @@ def find_card_db() -> Path | None:
     return None
 
 
+RARITY_MAP = {1: "land", 2: "common", 3: "uncommon", 4: "rare", 5: "mythic"}
+
+
 def load_card_data(card_ids: set[int]) -> dict[int, dict]:
-    """Query local MTGA card DB for colors and CMC of the given card IDs."""
+    """Query local MTGA card DB for colors, CMC, rarity and name."""
     db_path = find_card_db()
     if not db_path or not card_ids:
         return {}
@@ -61,26 +64,35 @@ def load_card_data(card_ids: set[int]) -> dict[int, dict]:
         con = sqlite3.connect(str(db_path))
         ids_str = ",".join(str(i) for i in card_ids)
         rows = con.execute(
-            f"SELECT GrpId, Colors, Order_CMCWithXLast, IsToken "
-            f"FROM Cards WHERE GrpId IN ({ids_str})"
+            f"SELECT c.GrpId, c.Colors, c.Order_CMCWithXLast, c.IsToken, c.Rarity, l.Loc "
+            f"FROM Cards c "
+            f"LEFT JOIN Localizations_enUS l ON l.LocId=c.TitleId AND l.Formatted=1 "
+            f"WHERE c.GrpId IN ({ids_str})"
         ).fetchall()
         con.close()
-        for grp_id, colors_raw, cmc, is_token in rows:
+        for grp_id, colors_raw, cmc, is_token, rarity, name in rows:
             color_vals = [c.strip() for c in (colors_raw or "").split(",") if c.strip()]
             colors = [COLOR_MAP[c] for c in color_vals if c in COLOR_MAP]
-            result[grp_id] = {"colors": colors, "cmc": cmc or 0, "isToken": bool(is_token)}
+            result[grp_id] = {
+                "colors": colors,
+                "cmc": cmc or 0,
+                "isToken": bool(is_token),
+                "rarity": RARITY_MAP.get(rarity, "common"),
+                "name": re.sub(r"<[^>]+>", "", name or "") or f"Card #{grp_id}",
+            }
     except Exception:
         pass
     return result
 
 
 def deck_stats(deck: dict[int, int]) -> dict:
-    """Given {cardId: quantity}, return color and mana curve distributions."""
+    """Given {cardId: quantity}, return color distribution and mana curve with rarity/names."""
     all_ids = set(deck.keys())
     card_data = load_card_data(all_ids)
 
     color_counts: dict[str, int] = {"W": 0, "U": 0, "B": 0, "R": 0, "G": 0}
-    curve: dict[int, int] = {}  # cmc → card count (non-land, non-token)
+    # curve_detail: cmc_bucket → {rarity → [{name, qty}]}
+    curve_detail: dict[int, dict[str, list]] = {}
 
     for card_id, qty in deck.items():
         info = card_data.get(card_id)
@@ -89,16 +101,29 @@ def deck_stats(deck: dict[int, int]) -> dict:
         for color in info["colors"]:
             if color in color_counts:
                 color_counts[color] += qty
-        # Only count non-land spells in curve (lands have cmc=0 and no colors typically)
         cmc = info["cmc"]
-        if info["colors"] or cmc > 0:  # skip basic lands (no color, cmc=0)
-            bucket = min(cmc, 7)  # 7+ bucket
-            curve[bucket] = curve.get(bucket, 0) + qty
+        rarity = info["rarity"]
+        # Skip basic lands (no colors, cmc=0, rarity=land)
+        if rarity == "land" and cmc == 0 and not info["colors"]:
+            continue
+        bucket = min(cmc, 7)
+        if bucket not in curve_detail:
+            curve_detail[bucket] = {"mythic": [], "rare": [], "uncommon": [], "common": [], "land": []}
+        curve_detail[bucket][rarity].append({"name": info["name"], "qty": qty})
 
     # Remove zero-count colors
     color_counts = {k: v for k, v in color_counts.items() if v > 0}
-    # Normalise curve keys to strings for JSON
-    curve_out = {str(k): v for k, v in sorted(curve.items())}
+
+    # Build compact curve for JSON: bucket → {total, rarities: {mythic,rare,uncommon,common}, cards: [...]}
+    curve_out = {}
+    for bucket, rarities in sorted(curve_detail.items()):
+        total = sum(sum(c["qty"] for c in cards) for cards in rarities.values())
+        rarity_totals = {r: sum(c["qty"] for c in cards) for r, cards in rarities.items() if cards}
+        all_cards = []
+        for r in ["mythic", "rare", "uncommon", "common", "land"]:
+            for c in rarities.get(r, []):
+                all_cards.append({"name": c["name"], "qty": c["qty"], "rarity": r})
+        curve_out[str(bucket)] = {"total": total, "rarities": rarity_totals, "cards": all_cards}
 
     return {"colors": color_counts, "curve": curve_out}
 

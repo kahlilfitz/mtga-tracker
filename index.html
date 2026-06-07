@@ -210,24 +210,64 @@ function renderColorBar(colors) {
   return `<div style="display:flex;border-radius:6px;overflow:hidden;height:28px;margin-bottom:12px">${segments.join('')}</div>`;
 }
 
+const RARITY_COLORS = {
+  mythic:   '#e8824a',
+  rare:     '#c8a84b',
+  uncommon: '#a8d0f0',
+  common:   '#8888aa',
+  land:     '#667755',
+};
+const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common', 'land'];
+
 function renderCurve(curve) {
   if (!curve || Object.keys(curve).length === 0) return '';
-  const maxVal = Math.max(...Object.values(curve));
   const labels = ['0','1','2','3','4','5','6','7+'];
+  const maxVal = Math.max(...labels.map((_,i) => (curve[String(i)] || {total:0}).total));
+  if (maxVal === 0) return '';
+
   const bars = labels.map((lbl, idx) => {
     const key = String(idx);
-    const val = curve[key] || 0;
-    const pct = maxVal ? Math.round(val / maxVal * 100) : 0;
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">
-      <div style="font-size:0.7rem;color:var(--muted)">${val || ''}</div>
-      <div style="width:100%;background:var(--surface2);border-radius:3px 3px 0 0;height:60px;display:flex;align-items:flex-end">
-        <div style="width:100%;height:${pct}%;background:var(--accent2);border-radius:3px 3px 0 0;min-height:${val?2:0}px"></div>
+    const bucket = curve[key] || {total: 0, rarities: {}, cards: []};
+    const total = bucket.total;
+    const pct = maxVal ? total / maxVal * 100 : 0;
+
+    // Build stacked segments (bottom = common, top = mythic)
+    const stackH = 64; // px total bar height
+    const segments = RARITY_ORDER.slice().reverse().map(r => {
+      const cnt = (bucket.rarities || {})[r] || 0;
+      if (!cnt) return '';
+      const h = Math.max(2, Math.round(cnt / maxVal * stackH));
+      return `<div style="width:100%;height:${h}px;background:${RARITY_COLORS[r]};flex-shrink:0" title="${r}: ${cnt}"></div>`;
+    }).join('');
+
+    // Tooltip card list
+    const cardLines = (bucket.cards || []).map(c =>
+      `${c.qty > 1 ? c.qty + 'x ' : ''}${c.name}`
+    ).join('&#10;');
+
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;cursor:default"
+        title="${cardLines}">
+      <div style="font-size:0.7rem;color:var(--muted)">${total || ''}</div>
+      <div style="width:100%;background:var(--surface2);border-radius:3px 3px 0 0;height:${stackH}px;
+          display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden">
+        ${segments}
       </div>
       <div style="font-size:0.7rem;color:var(--muted)">${lbl}</div>
     </div>`;
   });
+
+  // Legend
+  const legendItems = RARITY_ORDER.map(r =>
+    `<span style="display:flex;align-items:center;gap:4px;font-size:0.7rem;color:var(--muted)">
+      <span style="width:8px;height:8px;border-radius:2px;background:${RARITY_COLORS[r]};display:inline-block"></span>${r}
+    </span>`
+  ).join('');
+
   return `<div>
-    <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Mana Curve</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Mana Curve</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">${legendItems}</div>
+    </div>
     <div style="display:flex;gap:4px;align-items:flex-end">${bars.join('')}</div>
   </div>`;
 }
