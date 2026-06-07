@@ -158,8 +158,39 @@ async function load() {
 
 function setFilter(f) {
   _filter = f;
+  renderSummary(_data);
   renderMatches(_data);
   document.querySelectorAll('.filter-tab').forEach(t => t.classList.toggle('active', t.dataset.f === f));
+}
+
+function renderSummary(d) {
+  const el = document.getElementById('summary-section');
+  if (!el) return;
+  const allMatches = [...d.matches];
+  const filtered = _filter === 'all' ? allMatches : allMatches.filter(m => groupKey(m.format) === _filter);
+  const wins = filtered.filter(m => m.result === 'win').length;
+  const losses = filtered.filter(m => m.result === 'loss').length;
+  const total = filtered.length;
+  const wr = total ? Math.round(wins / total * 100) : 0;
+
+  el.innerHTML = `<div class="grid">
+    <div class="card">
+      <div class="label">Win Rate</div>
+      <div class="value" style="color:${wr >= 50 ? 'var(--green)' : 'var(--red)'}">
+        ${total ? wr + '%' : '—'}
+      </div>
+      <div class="win-rate-bar"><div class="win-rate-fill" style="width:${wr}%"></div></div>
+      <div class="sub">${wins}W – ${losses}L of ${total} matches</div>
+    </div>
+    <div class="card">
+      <div class="label">Matches</div>
+      <div class="value">${total}</div>
+    </div>
+    <div class="card">
+      <div class="label">Draft Events</div>
+      <div class="value">${d.drafts.length}</div>
+    </div>
+  </div>`;
 }
 
 function formatLabel(fmt) {
@@ -378,25 +409,16 @@ function render(d) {
     </div>`;
   }
 
-  // Summary cards
-  html += `<div class="grid">
-    <div class="card">
-      <div class="label">Win Rate</div>
-      <div class="value" style="color:${s.winRate >= 50 ? 'var(--green)' : 'var(--red)'}">
-        ${s.total ? s.winRate + '%' : '—'}
-      </div>
-      <div class="win-rate-bar"><div class="win-rate-fill" style="width:${s.winRate}%"></div></div>
-      <div class="sub">${s.wins}W – ${s.losses}L of ${s.total} matches</div>
-    </div>
-    <div class="card">
-      <div class="label">Matches Played</div>
-      <div class="value">${s.total}</div>
-    </div>
-    <div class="card">
-      <div class="label">Draft Events</div>
-      <div class="value">${d.drafts.length}</div>
-    </div>
-  </div>`;
+  // Filter tabs + summary (tabs control summary stats)
+  const filters = buildFilters(d.matches);
+  const tabsHtml = filters.map(f =>
+    `<button class="filter-tab${_filter === f.key ? ' active' : ''}" data-f="${f.key}" onclick="setFilter('${f.key}')">${f.label}</button>`
+  ).join('');
+  html += `<div class="section-header" style="margin-bottom:16px">
+    <div style="font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Filter</div>
+    <div class="filter-tabs">${tabsHtml}</div>
+  </div>
+  <div id="summary-section"></div>`;
 
   // Rank
   if (d.rank) {
@@ -439,21 +461,13 @@ function render(d) {
     html += `</div>`;
   }
 
-  // Recent matches with filter tabs
-  const filters = buildFilters(d.matches);
-  const tabsHtml = filters.map(f =>
-    `<button class="filter-tab${_filter === f.key ? ' active' : ''}" data-f="${f.key}" onclick="setFilter('${f.key}')">${f.label}</button>`
-  ).join('');
-
   html += `<div class="section">
-    <div class="section-header">
-      <h2>Recent Matches</h2>
-      <div class="filter-tabs">${tabsHtml}</div>
-    </div>
+    <div class="section-header"><h2>Recent Matches</h2></div>
     <div id="matches-section"></div>
   </div>`;
 
   main.innerHTML = html;
+  renderSummary(d);
   renderMatches(d);
 }
 
