@@ -9,12 +9,38 @@ from pathlib import Path
 LOG_PATH = Path.home() / "Library/Logs/Wizards Of The Coast/MTGA/Player.log"
 PREV_LOG_PATH = Path.home() / "Library/Logs/Wizards Of The Coast/MTGA/Player-prev.log"
 
+# Draft/limited format prefixes
+DRAFT_PREFIXES = ("Draft", "Sealed", "Limited", "PremierDraft", "QuickDraft",
+                  "TradDraft", "ArenaLimited", "BotDraft")
+
 # Matches: [UnityCrossThreadLogger]<timestamp>: Match to <playerId>: <EventName>
 MATCH_EVENT_RE = re.compile(
     r"\[UnityCrossThreadLogger\].*?: Match to (\S+): (\w+)"
 )
 # Matches: [UnityCrossThreadLogger]==> <EventName> {json}
 REQUEST_RE = re.compile(r"\[UnityCrossThreadLogger\]==>\s+(\w+)\s+(\{.*)")
+
+
+def is_draft_format(fmt: str) -> bool:
+    return any(fmt.startswith(p) for p in DRAFT_PREFIXES)
+
+
+def format_display(fmt: str) -> str:
+    """Convert internal event name to a human-readable label."""
+    if not fmt:
+        return "Unknown"
+    # PremierDraft_SOS_20260421 → "Premier Draft · SOS"
+    # ArenaLimitedQualifier_Draft1_20260605 → "Arena Limited Qualifier"
+    # Ladder → "Ladder"
+    parts = fmt.split("_")
+    # Strip trailing date-like segment (8 digits)
+    if parts and re.fullmatch(r"\d{8}", parts[-1]):
+        parts = parts[:-1]
+    # Insert spaces before capital letters in the first segment
+    label = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", parts[0])
+    if len(parts) > 1 and not re.fullmatch(r"\d+", parts[1]):
+        label += f" · {parts[1]}"
+    return label
 
 
 def read_lines(path: Path) -> list[str]:
@@ -30,9 +56,10 @@ def parse_log(lines: list[str]) -> dict:
     rank: dict | None = None
     inventory: dict | None = None
 
-    # Track active match context (Playing state)
     active_match: dict = {}
-    pending_deck_name: str = ""  # set by EventSetDeckV3 right before each match
+    pending_deck_name: str = ""
+    # Persist deck name per event so all games in a draft event show it
+    deck_by_event: dict[str, str] = {}
 
     i = 0
     while i < len(lines):
@@ -43,7 +70,6 @@ def parse_log(lines: list[str]) -> dict:
         if m:
             target_player = m.group(1)
             event_name = m.group(2)
-            # Next non-empty line should be the JSON payload
             j = i + 1
             while j < len(lines) and not lines[j].strip().startswith("{"):
                 j += 1
@@ -62,8 +88,6 @@ def parse_log(lines: list[str]) -> dict:
                 match_id = config.get("matchId", "")
                 event_id = ""
 
-                # Detect my player ID: the target in the log line IS the local player
-                # Store it the first time we see a match event
                 if not my_player_id and target_player:
                     my_player_id = target_player
 
@@ -76,10 +100,19 @@ def parse_log(lines: list[str]) -> dict:
                             event_id = p.get("eventId", "")
                         else:
                             opponent_name = p.get("playerName", "")
+
+                    # Resolve deck name: pending > stored per-event > empty
+                    deck_name = pending_deck_name
+                    if not deck_name and event_id:
+                        deck_name = deck_by_event.get(event_id, "")
+                    # Store it so future games in this event inherit it
+                    if deck_name and event_id:
+                        deck_by_event[event_id] = deck_name
+
                     active_match = {
                         "matchId": match_id,
                         "format": event_id,
-                        "deckName": pending_deck_name,
+                        "deckName": deck_name,
                         "opponentName": opponent_name,
                         "myTeamId": my_team,
                         "timestamp": payload.get("timestamp", ""),
@@ -96,7 +129,6 @@ def parse_log(lines: list[str]) -> dict:
                             winning_team = r.get("winningTeamId")
                             result = "win" if winning_team == active_match.get("myTeamId") else "loss"
                             break
-                    # Fallback: use last game result
                     if result == "unknown":
                         for r in result_list:
                             if r.get("scope") == "MatchScope_Game":
@@ -104,7 +136,6 @@ def parse_log(lines: list[str]) -> dict:
                                 result = "win" if winning_team == active_match.get("myTeamId") else "loss"
                                 break
 
-                    # Merge opponent info if active_match doesn't have it yet
                     if not active_match.get("opponentName"):
                         for p in players:
                             if p.get("userId") != my_player_id:
@@ -117,25 +148,27 @@ def parse_log(lines: list[str]) -> dict:
             i = j + 1
             continue
 
-        # --- API responses (bare JSON lines after ==> requests) ---
-        # Detect ==> requests to know what the next JSON block is
+        # --- Outgoing requests ---
         req_m = REQUEST_RE.match(line)
         if req_m:
             event_name = req_m.group(1)
-            # Capture deck name submitted right before each match
             if event_name == "EventSetDeckV3":
                 try:
                     outer = json.loads(req_m.group(2))
                     req = json.loads(outer.get("request", "{}"))
                     summary = req.get("Summary", {})
-                    pending_deck_name = summary.get("Name", "")
+                    name = summary.get("Name", "")
+                    mtga_event = req.get("EventName", "")
+                    if name:
+                        pending_deck_name = name
+                        if mtga_event:
+                            deck_by_event[mtga_event] = name
                 except (json.JSONDecodeError, KeyError):
                     pass
-            # No per-request response scanning needed — rank/inventory parsed via direct scan below
             i += 1
             continue
 
-        # Also catch bare InventoryInfo lines not attached to a ==> request
+        # Bare InventoryInfo lines
         if line.strip().startswith('{"InventoryInfo"'):
             try:
                 payload = json.loads(line.strip())
@@ -154,7 +187,7 @@ def parse_log(lines: list[str]) -> dict:
 
         i += 1
 
-    # Direct scan for rank and inventory — responses arrive async, not right after requests
+    # Direct scan for rank and inventory
     for line in lines:
         stripped = line.strip()
         if not stripped.startswith("{"):
@@ -203,6 +236,39 @@ def parse_log(lines: list[str]) -> dict:
     }
 
 
+def build_drafts(matches: list[dict]) -> list[dict]:
+    """Group draft/limited matches by event into draft summaries."""
+    events: dict[str, dict] = {}
+    for m in matches:
+        fmt = m.get("format", "")
+        if not is_draft_format(fmt):
+            continue
+        if fmt not in events:
+            events[fmt] = {
+                "eventId": fmt,
+                "displayName": format_display(fmt),
+                "deckName": "",
+                "wins": 0,
+                "losses": 0,
+                "matches": [],
+            }
+        e = events[fmt]
+        if m.get("deckName") and not e["deckName"]:
+            e["deckName"] = m["deckName"]
+        if m["result"] == "win":
+            e["wins"] += 1
+        elif m["result"] == "loss":
+            e["losses"] += 1
+        e["matches"].append(m)
+
+    # Sort by first match timestamp descending
+    def first_ts(e):
+        ts = e["matches"][0].get("timestamp", "")
+        return ts
+
+    return sorted(events.values(), key=first_ts, reverse=True)
+
+
 def build_data() -> dict:
     lines = read_lines(PREV_LOG_PATH) + read_lines(LOG_PATH)
     parsed = parse_log(lines)
@@ -210,6 +276,7 @@ def build_data() -> dict:
     matches = parsed["matches"]
     wins = sum(1 for m in matches if m["result"] == "win")
     losses = sum(1 for m in matches if m["result"] == "loss")
+    drafts = build_drafts(matches)
 
     return {
         "generated": datetime.now().isoformat(),
@@ -223,7 +290,7 @@ def build_data() -> dict:
         "rank": parsed["rank"],
         "inventory": parsed["inventory"],
         "matches": matches[-100:],
-        "drafts": [],
+        "drafts": drafts,
     }
 
 
@@ -234,6 +301,10 @@ if __name__ == "__main__":
     r = data["rank"]
     rank_str = f"{r['constructed']['class']} {r['constructed']['level']}" if r else "unknown"
     print(f"Parsed {data['summary']['total']} matches | Rank: {rank_str} | W:{data['summary']['wins']} L:{data['summary']['losses']}")
+    if data["drafts"]:
+        print(f"Drafts: {len(data['drafts'])} events")
+        for d in data["drafts"]:
+            print(f"  {d['displayName']:35} {d['deckName'] or '(no deck name)':25} {d['wins']}W-{d['losses']}L")
     if data["inventory"]:
         inv = data["inventory"]
         print(f"Inventory: {inv['gold']}g {inv['gems']} gems | WC: {inv['wcCommon']}C {inv['wcUncommon']}U {inv['wcRare']}R {inv['wcMythic']}M")

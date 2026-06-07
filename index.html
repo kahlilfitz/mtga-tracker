@@ -180,18 +180,33 @@ function render(d) {
   // Drafts
   html += `<div class="section"><h2>Draft Events</h2>`;
   if (d.drafts.length === 0) {
-    html += `<div class="no-data">No draft data yet.</div>`;
+    html += `<div class="no-data">No draft events found in log.</div>`;
   } else {
-    html += `<table><thead><tr><th>Event</th><th>Draft ID</th><th>Picks</th><th>Status</th></tr></thead><tbody>`;
     d.drafts.forEach(dr => {
-      html += `<tr>
-        <td>${dr.eventId || '—'}</td>
-        <td style="color:var(--muted);font-size:0.8em">${dr.draftId.slice(0,12)}…</td>
-        <td class="draft-picks">${dr.picks.length} picks</td>
-        <td style="color:${dr.completed ? 'var(--green)' : 'var(--accent)'}">${dr.completed ? 'Complete' : 'In Progress'}</td>
-      </tr>`;
+      const total = dr.wins + dr.losses;
+      const wr = total ? Math.round(dr.wins / total * 100) : 0;
+      html += `<div class="card" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+          <div>
+            <div style="font-size:1rem;font-weight:600">${dr.displayName}</div>
+            <div style="font-size:0.8rem;color:var(--muted);margin-top:2px">${dr.deckName || '<span style="font-style:italic">no deck name</span>'}</div>
+          </div>
+          <div style="text-align:right">
+            <span class="${dr.wins > dr.losses ? 'result-win' : dr.losses > dr.wins ? 'result-loss' : ''}" style="font-size:1.2rem;font-weight:700">${dr.wins}–${dr.losses}</span>
+            <div style="font-size:0.75rem;color:var(--muted)">${wr}% win rate</div>
+          </div>
+        </div>
+        <table style="margin:0"><thead><tr><th>#</th><th>Result</th><th>Opponent</th><th>Deck</th></tr></thead><tbody>`;
+      dr.matches.forEach((m, idx) => {
+        html += `<tr>
+          <td style="color:var(--muted)">${idx + 1}</td>
+          <td class="result-${m.result}">${m.result.toUpperCase()}</td>
+          <td>${m.opponentName || '—'}</td>
+          <td style="color:var(--muted)">${m.deckName || '—'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
     });
-    html += `</tbody></table>`;
   }
   html += `</div>`;
 
