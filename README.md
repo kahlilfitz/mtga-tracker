@@ -19,13 +19,13 @@ Download the latest release for your platform from the [Releases page](https://g
 
 ### macOS
 
-1. Download `MTG.Arena.Tracker-<version>.dmg`
+1. Download `MTG-Arena-Tracker-<version>-arm64.dmg`
 2. Open the `.dmg` and drag **MTG Arena Tracker** into Applications
 3. On first launch, since the app isn't notarized: right-click the app → **Open** → **Open** (or go to **System Settings → Privacy & Security** and click **Open Anyway**)
 
 ### Windows
 
-1. Download `MTG.Arena.Tracker-Setup-<version>.exe`
+1. Download `MTG-Arena-Tracker-Setup-<version>.exe`
 2. Run the installer
 3. If SmartScreen blocks it (the app isn't code-signed), click **More info → Run anyway**
 
