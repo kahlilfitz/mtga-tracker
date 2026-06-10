@@ -16,7 +16,7 @@ function createWindow(): void {
   win.loadFile(path.join(__dirname, "..", "src", "index.html"));
 }
 
-ipcMain.handle("reparse", () => buildData());
+ipcMain.handle("reparse", async () => buildData());
 
 app.whenReady().then(() => {
   createWindow();

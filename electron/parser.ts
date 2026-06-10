@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import Database from "better-sqlite3";
+import initSqlJs, { Database as SqlJsDatabase } from "sql.js";
 
 const isWindows = process.platform === "win32";
 
@@ -62,37 +62,52 @@ interface CardInfo {
   name: string;
 }
 
-function loadCardData(cardIds: Set<number>): Map<number, CardInfo> {
+let sqlJsPromise: ReturnType<typeof initSqlJs> | null = null;
+function getSqlJs() {
+  if (!sqlJsPromise) {
+    sqlJsPromise = initSqlJs({
+      locateFile: (file: string) => path.join(__dirname, "..", "node_modules", "sql.js", "dist", file),
+    });
+  }
+  return sqlJsPromise;
+}
+
+async function loadCardData(cardIds: Set<number>): Promise<Map<number, CardInfo>> {
   const result = new Map<number, CardInfo>();
   const dbPath = findCardDb();
   if (!dbPath || cardIds.size === 0) return result;
 
+  let db: SqlJsDatabase | null = null;
   try {
-    const db = new Database(dbPath, { readonly: true });
+    const SQL = await getSqlJs();
+    db = new SQL.Database(fs.readFileSync(dbPath));
     const ids = Array.from(cardIds);
     const placeholders = ids.map(() => "?").join(",");
-    const rows = db.prepare(
-      `SELECT c.GrpId, c.Colors, c.Order_CMCWithXLast, c.IsToken, c.Rarity, l.Loc
+    const stmt = db.prepare(
+      `SELECT c.GrpId AS GrpId, c.Colors AS Colors, c.Order_CMCWithXLast AS Cmc, c.IsToken AS IsToken, c.Rarity AS Rarity, l.Loc AS Loc
        FROM Cards c
        LEFT JOIN Localizations_enUS l ON l.LocId=c.TitleId AND l.Formatted=1
        WHERE c.GrpId IN (${placeholders})`
-    ).all(...ids) as any[];
-    db.close();
-
-    for (const row of rows) {
+    );
+    stmt.bind(ids);
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as any;
       const colorVals = String(row.Colors ?? "").split(",").map((c) => c.trim()).filter(Boolean);
       const colors = colorVals.filter((c) => c in COLOR_MAP).map((c) => COLOR_MAP[c]);
       const name = String(row.Loc ?? "").replace(/<[^>]+>/g, "") || `Card #${row.GrpId}`;
       result.set(row.GrpId, {
         colors,
-        cmc: row.Order_CMCWithXLast || 0,
+        cmc: row.Cmc || 0,
         isToken: !!row.IsToken,
         rarity: RARITY_MAP[row.Rarity] ?? "common",
         name,
       });
     }
+    stmt.free();
   } catch {
     // ignore — no card data available
+  } finally {
+    db?.close();
   }
   return result;
 }
@@ -101,9 +116,9 @@ interface CurveCard { name: string; qty: number; rarity?: string }
 interface CurveBucket { total: number; rarities: Record<string, number>; cards: CurveCard[] }
 interface DeckStats { colors: Record<string, number>; curve: Record<string, CurveBucket> }
 
-function deckStats(deck: Record<number, number>): DeckStats {
+async function deckStats(deck: Record<number, number>): Promise<DeckStats> {
   const allIds = new Set(Object.keys(deck).map(Number));
-  const cardData = loadCardData(allIds);
+  const cardData = await loadCardData(allIds);
 
   const colorCounts: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   const curveDetail = new Map<number, Record<string, CurveCard[]>>();
@@ -434,11 +449,11 @@ interface DraftRun {
   worstLossStreak: number;
 }
 
-function buildDrafts(
+async function buildDrafts(
   matches: Match[],
   deckListByEvent: Record<string, Record<number, number>>,
   deckListById: Record<string, Record<number, number>>
-): DraftRun[] {
+): Promise<DraftRun[]> {
   const runs = new Map<string, DraftRun>();
   const runOrder: string[] = [];
 
@@ -472,7 +487,7 @@ function buildDrafts(
   for (const [key, run] of runs) {
     const [fmt, deckId] = key.split(" ");
     const deckList = deckListById[deckId] || deckListByEvent[fmt] || {};
-    run.cardStats = Object.keys(deckList).length ? deckStats(deckList) : null;
+    run.cardStats = Object.keys(deckList).length ? await deckStats(deckList) : null;
     const streak = longestStreak(run.matches);
     run.bestWinStreak = streak.win;
     run.worstLossStreak = streak.loss;
@@ -502,14 +517,14 @@ function buildDrafts(
   return sortedRuns;
 }
 
-export function buildData(): any {
+export async function buildData(): Promise<any> {
   const lines = [...readLines(PREV_LOG_PATH), ...readLines(LOG_PATH)];
   const parsed = parseLog(lines);
 
   const matches = parsed.matches;
   const wins = matches.filter((m) => m.result === "win").length;
   const losses = matches.filter((m) => m.result === "loss").length;
-  const drafts = buildDrafts(matches, parsed.deckListByEvent, parsed.deckListById);
+  const drafts = await buildDrafts(matches, parsed.deckListByEvent, parsed.deckListById);
 
   return {
     generated: new Date().toISOString(),

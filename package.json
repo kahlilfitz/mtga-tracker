@@ -21,33 +21,40 @@
   },
   "homepage": "https://github.com/kahlilfitz/mtga-tracker#readme",
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.2",
+    "@types/sql.js": "^1.4.11",
     "electron": "^42.4.0",
     "electron-builder": "^26.15.2",
     "typescript": "^6.0.3"
-  },
-  "dependencies": {
-    "better-sqlite3": "^12.10.0"
   },
   "build": {
     "appId": "com.kahlilfitz.mtga-tracker",
     "productName": "MTG Arena Tracker",
     "files": [
       "dist-electron/**/*",
-      "src/**/*"
+      "src/**/*",
+      "node_modules/**/*"
     ],
     "mac": {
       "category": "public.app-category.utilities",
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
-      "target": ["nsis", "zip"]
+      "target": [
+        "nsis",
+        "zip"
+      ]
     },
     "publish": {
       "provider": "github",
       "owner": "kahlilfitz",
       "repo": "mtga-tracker"
     }
+  },
+  "dependencies": {
+    "sql.js": "^1.14.1"
   }
 }
