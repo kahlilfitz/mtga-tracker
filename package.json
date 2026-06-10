@@ -38,7 +38,16 @@
       "src/**/*"
     ],
     "mac": {
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.utilities",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["nsis", "zip"]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "kahlilfitz",
+      "repo": "mtga-tracker"
     }
   }
 }

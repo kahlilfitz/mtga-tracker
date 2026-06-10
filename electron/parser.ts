@@ -3,9 +3,17 @@ import * as os from "os";
 import * as path from "path";
 import Database from "better-sqlite3";
 
-const LOG_PATH = path.join(os.homedir(), "Library/Logs/Wizards Of The Coast/MTGA/Player.log");
-const PREV_LOG_PATH = path.join(os.homedir(), "Library/Logs/Wizards Of The Coast/MTGA/Player-prev.log");
-const CARD_DB_DIR = path.join(os.homedir(), "Library/Application Support/com.wizards.mtga/Downloads/Raw");
+const isWindows = process.platform === "win32";
+
+const LOG_DIR = isWindows
+  ? path.join(os.homedir(), "AppData/LocalLow/Wizards Of The Coast/MTGA")
+  : path.join(os.homedir(), "Library/Logs/Wizards Of The Coast/MTGA");
+
+const LOG_PATH = path.join(LOG_DIR, "Player.log");
+const PREV_LOG_PATH = path.join(LOG_DIR, "Player-prev.log");
+const CARD_DB_DIR = isWindows
+  ? path.join(os.homedir(), "AppData/LocalLow/Wizards Of The Coast/MTGA/Downloads/Raw")
+  : path.join(os.homedir(), "Library/Application Support/com.wizards.mtga/Downloads/Raw");
 
 const DRAFT_PREFIXES = ["Draft", "Sealed", "Limited", "PremierDraft", "QuickDraft",
   "TradDraft", "ArenaLimited", "BotDraft"];
