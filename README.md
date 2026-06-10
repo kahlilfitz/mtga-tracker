@@ -1,8 +1,8 @@
 # MTG Arena Tracker
 
-A local dashboard for tracking your MTG Arena match history, rank, and inventory. No accounts, no cloud — reads directly from the game's log file on macOS.
+A local desktop dashboard for tracking your MTG Arena match history, rank, and inventory. No accounts, no cloud — reads directly from the game's log file on macOS.
 
-<img width="1333" height="697" alt="Screenshot 2026-06-02 at 5 16 02 PM" src="https://github.com/user-attachments/assets/903b0dd9-7382-4dbd-88c6-acdb7b50d004" />
+<img width="1333" height="697" alt="Screenshot 2026-06-02 at 5 16 02 PM" src="https://github.com/user-attachments/assets/903b0dd9-7382-4dbd-88c6-acdb7b50d004" />
 
 ## Features
 
@@ -10,13 +10,14 @@ A local dashboard for tracking your MTG Arena match history, rank, and inventory
 - Constructed and limited rank
 - Inventory: gold, gems, wildcards
 - Recent match table with opponent names and formats
-- Auto-updates when you close MTG Arena
+- Per-draft color distribution and mana curve
+- Manual refresh — re-parses the log on demand
 
 ## Requirements
 
 - macOS
 - MTG Arena (Mac client)
-- Python 3 (pre-installed on macOS)
+- Node.js 18+ (for development/building)
 
 ## Setup
 
@@ -26,51 +27,29 @@ In-game: **Settings → Account → Detailed Logs (Verbose) → ON**
 
 Restart the game after enabling. This is required — without it, the log contains no match data.
 
-### 2. Clone the repo
+### 2. Clone the repo and install dependencies
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/mtga-tracker.git
 cd mtga-tracker
+npm install
 ```
 
-### 3. Run the parser
+### 3. Run the app
 
 ```bash
-python3 parse.py
+npm start
 ```
 
-This reads `Player.log` and writes `data.json` in the same folder.
+This launches the Electron app. Click **↻ Refresh** to re-parse the latest log data.
 
-### 4. Open the dashboard
-
-Open `index.html` in your browser, or serve it locally:
+### 4. Build a standalone app (optional)
 
 ```bash
-python3 -m http.server 7890
-# then open http://localhost:7890
+npm run dist
 ```
 
-Hit **↻ Refresh** in the dashboard after running the parser to see updated data.
-
-## Auto-update on game close (macOS)
-
-A launchd agent watches the log file and runs `parse.py` automatically when MTG Arena closes.
-
-1. Copy the template plist and fill in your paths:
-
-```bash
-cp launchd/com.mtga-tracker.plist.template ~/Library/LaunchAgents/com.mtga-tracker.plist
-```
-
-2. Edit `~/Library/LaunchAgents/com.mtga-tracker.plist` — replace all `REPLACE_WITH_*` placeholders with your actual paths and username.
-
-3. Load the agent:
-
-```bash
-launchctl load ~/Library/LaunchAgents/com.mtga-tracker.plist
-```
-
-To unload: `launchctl unload ~/Library/LaunchAgents/com.mtga-tracker.plist`
+Produces a packaged `.app` in `dist/` via electron-builder.
 
 ## How it works
 
@@ -79,7 +58,7 @@ MTG Arena writes structured JSON events to:
 ~/Library/Logs/Wizards Of The Coast/MTGA/Player.log
 ```
 
-The parser reads both `Player.log` and `Player-prev.log` (the previous session) to extract match results, rank, and inventory. No network requests are made.
+When you click Refresh, the app's main process reads both `Player.log` and `Player-prev.log` (the previous session) to extract match results, rank, and inventory, plus queries MTG Arena's local card database for deck color/mana curve stats. No network requests are made.
 
 ## Privacy
 
