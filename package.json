@@ -1,0 +1,53 @@
+{
+  "name": "mtga-tracker",
+  "version": "1.0.0",
+  "description": "A local dashboard for tracking your MTG Arena match history, rank, and inventory. No accounts, no cloud — reads directly from the game's log file on macOS.",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kahlilfitz/mtga-tracker.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kahlilfitz/mtga-tracker/issues"
+  },
+  "homepage": "https://github.com/kahlilfitz/mtga-tracker#readme",
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.9.2",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.2",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0"
+  },
+  "build": {
+    "appId": "com.kahlilfitz.mtga-tracker",
+    "productName": "MTG Arena Tracker",
+    "files": [
+      "dist-electron/**/*",
+      "src/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["nsis", "zip"]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "kahlilfitz",
+      "repo": "mtga-tracker"
+    }
+  }
+}

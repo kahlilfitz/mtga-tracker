@@ -147,12 +147,11 @@ let _filter = 'all';
 
 async function load() {
   try {
-    const res = await fetch('data.json?t=' + Date.now());
-    _data = await res.json();
+    _data = await window.api.reparse();
     render(_data);
   } catch (e) {
     document.getElementById('main').innerHTML =
-      `<div class="warning"><h2>No data found</h2><p>Run <code>python3 parse.py</code> in the tracker folder first, then reload this page.</p></div>`;
+      `<div class="warning"><h2>No data found</h2><p>Could not read the MTG Arena log file. Make sure MTG Arena has been run at least once with Detailed Logs enabled.</p></div>`;
   }
 }
 
