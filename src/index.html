@@ -204,6 +204,7 @@ function formatLabel(fmt) {
   if (fmt.startsWith('QuickDraft')) return 'Quick Draft';
   if (fmt.startsWith('ArenaLimited')) return 'Limited Event';
   if (fmt.startsWith('TradDraft')) return 'Trad. Draft';
+  if (fmt.startsWith('PickTwoDraft')) return 'Pick Two Draft';
   const parts = fmt.split('_');
   return parts[0].replace(/([a-z])([A-Z])/g, '$1 $2');
 }
@@ -212,7 +213,8 @@ function groupKey(fmt) {
   if (!fmt) return 'other';
   if (fmt.startsWith('PremierDraft') || fmt.startsWith('QuickDraft') ||
       fmt.startsWith('ArenaLimited') || fmt.startsWith('TradDraft') ||
-      fmt.startsWith('Draft') || fmt.startsWith('Sealed')) return 'draft';
+      fmt.startsWith('Draft') || fmt.startsWith('Sealed') ||
+      fmt.startsWith('PickTwoDraft')) return 'draft';
   if (fmt === 'DirectGame') return 'direct';
   if (fmt.includes('Alchemy')) return 'alchemy';
   if (fmt.includes('Historic')) return 'historic';

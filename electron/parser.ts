@@ -16,7 +16,7 @@ const CARD_DB_DIR = isWindows
   : path.join(os.homedir(), "Library/Application Support/com.wizards.mtga/Downloads/Raw");
 
 const DRAFT_PREFIXES = ["Draft", "Sealed", "Limited", "PremierDraft", "QuickDraft",
-  "TradDraft", "ArenaLimited", "BotDraft"];
+  "TradDraft", "ArenaLimited", "BotDraft", "PickTwoDraft"];
 
 const MATCH_EVENT_RE = /\[UnityCrossThreadLogger\].*?: Match to (\S+): (\w+)/;
 const REQUEST_RE = /\[UnityCrossThreadLogger\]==>\s+(\w+)\s+(\{.*)/;
