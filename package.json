@@ -1,6 +1,6 @@
 {
   "name": "mtga-tracker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A local dashboard for tracking your MTG Arena match history, rank, and inventory. No accounts, no cloud — reads directly from the game's log file on macOS.",
   "main": "dist-electron/main.js",
   "scripts": {
