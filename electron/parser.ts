@@ -15,8 +15,7 @@ const CARD_DB_DIR = isWindows
   ? path.join(os.homedir(), "AppData/LocalLow/Wizards Of The Coast/MTGA/Downloads/Raw")
   : path.join(os.homedir(), "Library/Application Support/com.wizards.mtga/Downloads/Raw");
 
-const DRAFT_PREFIXES = ["Draft", "Sealed", "Limited", "PremierDraft", "QuickDraft",
-  "TradDraft", "ArenaLimited", "BotDraft", "PickTwoDraft"];
+const ARENA_LIMITED_PREFIX = "ArenaLimited";
 
 const MATCH_EVENT_RE = /\[UnityCrossThreadLogger\].*?: Match to (\S+): (\w+)/;
 const REQUEST_RE = /\[UnityCrossThreadLogger\]==>\s+(\w+)\s+(\{.*)/;
@@ -25,7 +24,7 @@ const COLOR_MAP: Record<string, string> = { "1": "W", "2": "U", "3": "B", "4": "
 const RARITY_MAP: Record<number, string> = { 1: "land", 2: "common", 3: "uncommon", 4: "rare", 5: "mythic" };
 
 function isDraftFormat(fmt: string): boolean {
-  return DRAFT_PREFIXES.some((p) => fmt.startsWith(p));
+  return fmt.includes("Draft") || fmt.includes("Sealed") || fmt.startsWith(ARENA_LIMITED_PREFIX);
 }
 
 function formatDisplay(fmt: string): string {

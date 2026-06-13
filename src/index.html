@@ -211,10 +211,7 @@ function formatLabel(fmt) {
 
 function groupKey(fmt) {
   if (!fmt) return 'other';
-  if (fmt.startsWith('PremierDraft') || fmt.startsWith('QuickDraft') ||
-      fmt.startsWith('ArenaLimited') || fmt.startsWith('TradDraft') ||
-      fmt.startsWith('Draft') || fmt.startsWith('Sealed') ||
-      fmt.startsWith('PickTwoDraft')) return 'draft';
+  if (fmt.includes('Draft') || fmt.includes('Sealed') || fmt.startsWith('ArenaLimited')) return 'draft';
   if (fmt === 'DirectGame') return 'direct';
   if (fmt.includes('Alchemy')) return 'alchemy';
   if (fmt.includes('Historic')) return 'historic';
