@@ -268,38 +268,54 @@ function parseLog(lines: string[]): ParsedLog {
           pendingDeckId = "";
           pendingDeckList = {};
         } else if (stateType === "MatchGameRoomStateType_MatchCompleted") {
+          // If we never saw the Playing state for this match (e.g. a forced
+          // draw on reconnect), recover what we can from reservedPlayers.
+          let myTeamId = activeMatch.myTeamId ?? null;
+          let format = activeMatch.format ?? "";
+          let opponentName = activeMatch.opponentName ?? "";
+          if (myTeamId === null || !format || !opponentName) {
+            for (const p of players) {
+              if (p.userId === myPlayerId) {
+                if (myTeamId === null) myTeamId = p.teamId ?? null;
+                if (!format) format = p.eventId ?? "";
+              } else if (!opponentName) {
+                opponentName = p.playerName ?? "";
+              }
+            }
+          }
+
           const resultList: any[] = gri.finalMatchResult?.resultList ?? [];
           let result = "unknown";
           for (const r of resultList) {
             if (r.scope === "MatchScope_Match") {
-              result = r.winningTeamId === activeMatch.myTeamId ? "win" : "loss";
+              if (r.result === "ResultType_Draw" || r.winningTeamId === undefined) {
+                result = "draw";
+              } else {
+                result = r.winningTeamId === myTeamId ? "win" : "loss";
+              }
               break;
             }
           }
           if (result === "unknown") {
             for (const r of resultList) {
               if (r.scope === "MatchScope_Game") {
-                result = r.winningTeamId === activeMatch.myTeamId ? "win" : "loss";
+                if (r.result === "ResultType_Draw" || r.winningTeamId === undefined) {
+                  result = "draw";
+                } else {
+                  result = r.winningTeamId === myTeamId ? "win" : "loss";
+                }
                 break;
-              }
-            }
-          }
-
-          if (!activeMatch.opponentName) {
-            for (const p of players) {
-              if (p.userId !== myPlayerId) {
-                activeMatch.opponentName = p.playerName ?? "";
               }
             }
           }
 
           const record: Match = {
             matchId: matchId || activeMatch.matchId || "",
-            format: activeMatch.format ?? "",
+            format,
             deckName: activeMatch.deckName ?? "",
             deckId: activeMatch.deckId ?? "",
-            opponentName: activeMatch.opponentName ?? "",
-            myTeamId: activeMatch.myTeamId ?? null,
+            opponentName,
+            myTeamId,
             timestamp: activeMatch.timestamp ?? "",
             result,
           };
@@ -458,8 +474,8 @@ async function buildDrafts(
 
   for (const m of matches) {
     const fmt = m.format ?? "";
-    if (!isDraftFormat(fmt)) continue;
-    const deckId = m.deckId ?? "";
+    if (!isDraftFormat(fmt) || !m.deckId) continue;
+    const deckId = m.deckId;
     const key = `${fmt} ${deckId}`;
     if (!runs.has(key)) {
       runs.set(key, {
