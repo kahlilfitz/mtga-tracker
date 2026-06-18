@@ -427,12 +427,12 @@ function render(d) {
       <div class="rank-card">
         <div class="type">Constructed</div>
         <div class="tier">${r.constructed.class} ${r.constructed.level}</div>
-        <div class="step">Step ${r.constructed.step} · ${r.constructed.wins}W ${r.constructed.losses}L this season</div>
+        <div class="step">Step ${r.constructed.step} · ${r.constructed.wins}W ${r.constructed.losses}L this season · ${r.constructed.wins + r.constructed.losses > 0 ? Math.round(r.constructed.wins / (r.constructed.wins + r.constructed.losses) * 100) : 0}% WR</div>
       </div>
       <div class="rank-card">
         <div class="type">Limited</div>
         <div class="tier">${r.limited.class} ${r.limited.level}</div>
-        <div class="step">Step ${r.limited.step} · ${r.limited.wins}W ${r.limited.losses}L this season</div>
+        <div class="step">Step ${r.limited.step} · ${r.limited.wins}W ${r.limited.losses}L this season · ${r.limited.wins + r.limited.losses > 0 ? Math.round(r.limited.wins / (r.limited.wins + r.limited.losses) * 100) : 0}% WR</div>
       </div>
     </div></div>`;
   }
