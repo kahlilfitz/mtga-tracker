@@ -111,6 +111,7 @@
 
 <script>
 let _data = null;
+let _page = 'profile'; // profile | draft | ladder | alchemy | historic | direct | other
 
 // Custom curve tooltip
 const tip = document.getElementById('curve-tip');
@@ -150,8 +151,6 @@ document.addEventListener('mouseover', e => {
     hideCurveTip();
   }
 });
-let _filter = 'all';
-
 async function load() {
   try {
     _data = await window.api.reparse();
@@ -162,48 +161,26 @@ async function load() {
   }
 }
 
-function renderNav(filters) {
-  const nav = document.getElementById('top-nav');
-  nav.innerHTML = filters.map(f =>
-    `<button class="nav-tab${_filter === f.key ? ' active' : ''}" data-f="${f.key}" onclick="setFilter('${f.key}')">${f.label}</button>`
+function buildPages(d) {
+  const groups = new Set(d.matches.map(m => groupKey(m.format)));
+  const ORDER  = ['ladder', 'alchemy', 'historic', 'direct', 'other'];
+  const LABELS = { ladder:'Standard', alchemy:'Alchemy', historic:'Historic', direct:'Direct', other:'Other' };
+  const pages  = [{ key: 'profile', label: 'Profile' }];
+  if (d.drafts.length > 0) pages.push({ key: 'draft', label: 'Draft' });
+  for (const g of ORDER) if (groups.has(g)) pages.push({ key: g, label: LABELS[g] });
+  return pages;
+}
+
+function renderNav(pages) {
+  document.getElementById('top-nav').innerHTML = pages.map(p =>
+    `<button class="nav-tab${_page === p.key ? ' active' : ''}" onclick="setPage('${p.key}')">${p.label}</button>`
   ).join('');
 }
 
-function setFilter(f) {
-  _filter = f;
-  renderSummary(_data);
-  renderMatches(_data);
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.f === f));
-}
-
-function renderSummary(d) {
-  const el = document.getElementById('summary-section');
-  if (!el) return;
-  const allMatches = [...d.matches];
-  const filtered = _filter === 'all' ? allMatches : allMatches.filter(m => groupKey(m.format) === _filter);
-  const wins = filtered.filter(m => m.result === 'win').length;
-  const losses = filtered.filter(m => m.result === 'loss').length;
-  const total = filtered.length;
-  const wr = total ? Math.round(wins / total * 100) : 0;
-
-  el.innerHTML = `<div class="grid">
-    <div class="card">
-      <div class="label">Win Rate</div>
-      <div class="value" style="color:${wr >= 50 ? 'var(--green)' : 'var(--red)'}">
-        ${total ? wr + '%' : '—'}
-      </div>
-      <div class="win-rate-bar"><div class="win-rate-fill" style="width:${wr}%"></div></div>
-      <div class="sub">${wins}W – ${losses}L of ${total} matches</div>
-    </div>
-    <div class="card">
-      <div class="label">Matches</div>
-      <div class="value">${total}</div>
-    </div>
-    <div class="card">
-      <div class="label">Draft Events</div>
-      <div class="value">${d.drafts.length}</div>
-    </div>
-  </div>`;
+function setPage(p) {
+  _page = p;
+  renderNav(buildPages(_data));
+  renderMain(_data);
 }
 
 function formatLabel(fmt) {
@@ -232,42 +209,94 @@ function groupKey(fmt) {
   return 'ladder';
 }
 
-function buildFilters(matches) {
-  const groups = new Set(matches.map(m => groupKey(m.format)));
-  const order = ['all', 'ladder', 'alchemy', 'historic', 'draft', 'direct', 'other'];
-  const labels = { all:'All', ladder:'Standard', alchemy:'Alchemy', historic:'Historic', draft:'Draft', direct:'Direct', other:'Other' };
-  return order.filter(g => g === 'all' || groups.has(g)).map(g => ({ key: g, label: labels[g] }));
+function matchStatsHtml(matches) {
+  const wins = matches.filter(m => m.result === 'win').length;
+  const losses = matches.filter(m => m.result === 'loss').length;
+  const total = matches.length;
+  const wr = total ? Math.round(wins / total * 100) : 0;
+  return `<div class="grid">
+    <div class="card">
+      <div class="label">Win Rate</div>
+      <div class="value" style="color:${wr >= 50 ? 'var(--green)' : 'var(--red)'}">${total ? wr + '%' : '—'}</div>
+      <div class="win-rate-bar"><div class="win-rate-fill" style="width:${wr}%"></div></div>
+      <div class="sub">${wins}W – ${losses}L of ${total} matches</div>
+    </div>
+    <div class="card"><div class="label">Matches</div><div class="value">${total}</div></div>
+  </div>`;
 }
 
-function renderMatches(d) {
-  const container = document.getElementById('matches-section');
-  if (!container) return;
-  const allMatches = [...d.matches].reverse();
-  const filtered = _filter === 'all' ? allMatches : allMatches.filter(m => groupKey(m.format) === _filter);
-  const wins = filtered.filter(m => m.result === 'win').length;
-  const losses = filtered.filter(m => m.result === 'loss').length;
-  const wr = filtered.length ? Math.round(wins / filtered.length * 100) : 0;
+function matchTableHtml(matches) {
+  if (matches.length === 0) return `<div class="no-data">No matches recorded.</div>`;
+  let html = `<table><thead><tr><th>#</th><th>Result</th><th>Type</th><th>Opponent</th><th>Deck</th></tr></thead><tbody>`;
+  matches.slice(0, 50).forEach((m, i) => {
+    html += `<tr>
+      <td style="color:var(--muted)">${matches.length - i}</td>
+      <td class="result-${m.result}">${m.result.toUpperCase()}</td>
+      <td style="color:var(--muted);font-size:0.8rem">${formatLabel(m.format)}</td>
+      <td>${m.opponentName || '—'}</td>
+      <td style="color:var(--muted)">${m.deckName || '—'}</td>
+    </tr>`;
+  });
+  return html + `</tbody></table>`;
+}
 
+function renderProfilePage(d) {
+  let html = matchStatsHtml(d.matches);
+  html += `<div class="card" style="margin-top:16px"><div class="label">Draft Events</div><div class="value">${d.drafts.length}</div></div>`;
+
+  if (d.rank) {
+    const r = d.rank;
+    const cWR = r.constructed.wins + r.constructed.losses > 0 ? Math.round(r.constructed.wins / (r.constructed.wins + r.constructed.losses) * 100) : 0;
+    const lWR = r.limited.wins + r.limited.losses > 0 ? Math.round(r.limited.wins / (r.limited.wins + r.limited.losses) * 100) : 0;
+    html += `<div class="section" style="margin-top:24px"><div class="section-header"><h2>Rank</h2></div>
+    <div class="rank-grid">
+      <div class="rank-card">
+        <div class="type">Constructed</div>
+        <div class="tier">${r.constructed.class} ${r.constructed.level}</div>
+        <div class="step">Step ${r.constructed.step} · ${r.constructed.wins}W ${r.constructed.losses}L this season · ${cWR}% WR</div>
+      </div>
+      <div class="rank-card">
+        <div class="type">Limited</div>
+        <div class="tier">${r.limited.class} ${r.limited.level}</div>
+        <div class="step">Step ${r.limited.step} · ${r.limited.wins}W ${r.limited.losses}L this season · ${lWR}% WR</div>
+      </div>
+    </div></div>`;
+  }
+
+  if (d.inventory) {
+    const inv = d.inventory;
+    html += `<div class="section"><div class="section-header"><h2>Inventory</h2></div>
+    <div class="grid" style="margin-bottom:16px">
+      <div class="card"><div class="label">Gold</div><div class="value" style="color:var(--accent)">${inv.gold.toLocaleString()}</div></div>
+      <div class="card"><div class="label">Gems</div><div class="value" style="color:var(--accent2)">${inv.gems.toLocaleString()}</div></div>
+    </div>
+    <div class="wc-grid">
+      <div class="wc common"><div class="rarity">Common</div><div class="count">${inv.wcCommon}</div></div>
+      <div class="wc uncommon"><div class="rarity">Uncommon</div><div class="count">${inv.wcUncommon}</div></div>
+      <div class="wc rare"><div class="rarity">Rare</div><div class="count">${inv.wcRare}</div></div>
+      <div class="wc mythic"><div class="rarity">Mythic</div><div class="count">${inv.wcMythic}</div></div>
+    </div></div>`;
+  }
+
+  return html;
+}
+
+function renderDraftPage(d) {
+  if (d.drafts.length === 0) return `<div class="no-data">No draft events recorded.</div>`;
+  return d.drafts.map(renderDraftCard).join('');
+}
+
+function renderFormatPage(d, key) {
+  const matches = [...d.matches].reverse().filter(m => groupKey(m.format) === key);
+  return matchStatsHtml(matches) + `<div class="section" style="margin-top:24px"><div class="section-header"><h2>Recent Matches</h2></div>${matchTableHtml(matches)}</div>`;
+}
+
+function renderMain(d) {
   let html = '';
-  if (_filter !== 'all') {
-    html += `<div style="font-size:0.85rem;color:var(--muted);margin-bottom:12px">${wins}W – ${losses}L · ${wr}% win rate · ${filtered.length} matches</div>`;
-  }
-  if (filtered.length === 0) {
-    html += `<div class="no-data">No matches for this filter.</div>`;
-  } else {
-    html += `<table><thead><tr><th>#</th><th>Result</th><th>Type</th><th>Opponent</th><th>Deck</th></tr></thead><tbody>`;
-    filtered.slice(0, 50).forEach((m, i) => {
-      html += `<tr>
-        <td style="color:var(--muted)">${filtered.length - i}</td>
-        <td class="result-${m.result}">${m.result.toUpperCase()}</td>
-        <td style="color:var(--muted);font-size:0.8rem">${formatLabel(m.format)}</td>
-        <td>${m.opponentName || '—'}</td>
-        <td style="color:var(--muted)">${m.deckName || '—'}</td>
-      </tr>`;
-    });
-    html += `</tbody></table>`;
-  }
-  container.innerHTML = html;
+  if (_page === 'profile')     html = renderProfilePage(d);
+  else if (_page === 'draft')  html = renderDraftPage(d);
+  else                         html = renderFormatPage(d, _page);
+  document.getElementById('main').innerHTML = html;
 }
 
 function longestStreak(matches) {
@@ -404,13 +433,9 @@ function renderDraftCard(dr) {
 
 function render(d) {
   document.getElementById('updated').textContent = 'Updated: ' + new Date(d.generated).toLocaleString();
-  const main = document.getElementById('main');
-  const s = d.summary;
-
-  let html = '';
 
   if (!d.detailedLogsEnabled) {
-    html += `<div class="warning">
+    document.getElementById('main').innerHTML = `<div class="warning">
       <h2>⚠ Detailed Logs Not Enabled</h2>
       <p>No match data was found in your log file. To enable tracking:<br><br>
       1. Open MTG Arena<br>
@@ -419,62 +444,13 @@ function render(d) {
       4. Restart the game and play a match<br>
       5. Run <code>python3 parse.py</code> and refresh this page</p>
     </div>`;
+    return;
   }
 
-  // Build nav + summary
-  const filters = buildFilters(d.matches);
-  renderNav(filters);
-  html += `<div id="summary-section"></div>`;
-
-  // Rank
-  if (d.rank) {
-    const r = d.rank;
-    html += `<div class="section"><h2>Rank</h2>
-    <div class="rank-grid">
-      <div class="rank-card">
-        <div class="type">Constructed</div>
-        <div class="tier">${r.constructed.class} ${r.constructed.level}</div>
-        <div class="step">Step ${r.constructed.step} · ${r.constructed.wins}W ${r.constructed.losses}L this season · ${r.constructed.wins + r.constructed.losses > 0 ? Math.round(r.constructed.wins / (r.constructed.wins + r.constructed.losses) * 100) : 0}% WR</div>
-      </div>
-      <div class="rank-card">
-        <div class="type">Limited</div>
-        <div class="tier">${r.limited.class} ${r.limited.level}</div>
-        <div class="step">Step ${r.limited.step} · ${r.limited.wins}W ${r.limited.losses}L this season · ${r.limited.wins + r.limited.losses > 0 ? Math.round(r.limited.wins / (r.limited.wins + r.limited.losses) * 100) : 0}% WR</div>
-      </div>
-    </div></div>`;
-  }
-
-  // Inventory
-  if (d.inventory) {
-    const inv = d.inventory;
-    html += `<div class="section"><h2>Inventory</h2>
-    <div class="grid" style="margin-bottom:16px">
-      <div class="card"><div class="label">Gold</div><div class="value" style="color:var(--accent)">${inv.gold.toLocaleString()}</div></div>
-      <div class="card"><div class="label">Gems</div><div class="value" style="color:var(--accent2)">${inv.gems.toLocaleString()}</div></div>
-    </div>
-    <div class="wc-grid">
-      <div class="wc common"><div class="rarity">Common</div><div class="count">${inv.wcCommon}</div></div>
-      <div class="wc uncommon"><div class="rarity">Uncommon</div><div class="count">${inv.wcUncommon}</div></div>
-      <div class="wc rare"><div class="rarity">Rare</div><div class="count">${inv.wcRare}</div></div>
-      <div class="wc mythic"><div class="rarity">Mythic</div><div class="count">${inv.wcMythic}</div></div>
-    </div></div>`;
-  }
-
-  // Draft events
-  if (d.drafts.length > 0) {
-    html += `<div class="section"><div class="section-header"><h2>Draft Events</h2></div>`;
-    html += d.drafts.map(renderDraftCard).join('');
-    html += `</div>`;
-  }
-
-  html += `<div class="section">
-    <div class="section-header"><h2>Recent Matches</h2></div>
-    <div id="matches-section"></div>
-  </div>`;
-
-  main.innerHTML = html;
-  renderSummary(d);
-  renderMatches(d);
+  const pages = buildPages(d);
+  if (!pages.find(p => p.key === _page)) _page = 'profile';
+  renderNav(pages);
+  renderMain(d);
 }
 
 load();
