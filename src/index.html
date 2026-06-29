@@ -75,6 +75,11 @@
     #curve-tip .ct-card:last-child { border-bottom:none; }
     #curve-tip .ct-name { color:var(--text); }
     #curve-tip .ct-rarity { font-size:0.7rem; text-transform:capitalize; }
+    /* Top nav */
+    nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 32px; display: flex; gap: 0; overflow-x: auto; }
+    .nav-tab { background: none; border: none; border-bottom: 3px solid transparent; color: var(--muted); padding: 14px 20px; cursor: pointer; font-size: 0.88rem; font-weight: 500; white-space: nowrap; transition: all 0.15s; letter-spacing: 0.03em; }
+    .nav-tab:hover { color: var(--text); border-bottom-color: var(--border); }
+    .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
     /* Draft cards */
     .draft-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
     .draft-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
@@ -97,6 +102,7 @@
   <span class="updated" id="updated"></span>
   <button class="refresh-btn" onclick="load()">↻ Refresh</button>
 </header>
+<nav id="top-nav"></nav>
 <main id="main">
   <p style="color:var(--muted);padding:48px;text-align:center;">Loading…</p>
 </main>
@@ -156,11 +162,18 @@ async function load() {
   }
 }
 
+function renderNav(filters) {
+  const nav = document.getElementById('top-nav');
+  nav.innerHTML = filters.map(f =>
+    `<button class="nav-tab${_filter === f.key ? ' active' : ''}" data-f="${f.key}" onclick="setFilter('${f.key}')">${f.label}</button>`
+  ).join('');
+}
+
 function setFilter(f) {
   _filter = f;
   renderSummary(_data);
   renderMatches(_data);
-  document.querySelectorAll('.filter-tab').forEach(t => t.classList.toggle('active', t.dataset.f === f));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.f === f));
 }
 
 function renderSummary(d) {
@@ -222,7 +235,7 @@ function groupKey(fmt) {
 function buildFilters(matches) {
   const groups = new Set(matches.map(m => groupKey(m.format)));
   const order = ['all', 'ladder', 'alchemy', 'historic', 'draft', 'direct', 'other'];
-  const labels = { all:'All', ladder:'Ladder', alchemy:'Alchemy', historic:'Historic', draft:'Draft / Limited', direct:'Direct', other:'Other' };
+  const labels = { all:'All', ladder:'Standard', alchemy:'Alchemy', historic:'Historic', draft:'Draft', direct:'Direct', other:'Other' };
   return order.filter(g => g === 'all' || groups.has(g)).map(g => ({ key: g, label: labels[g] }));
 }
 
@@ -408,16 +421,10 @@ function render(d) {
     </div>`;
   }
 
-  // Filter tabs + summary (tabs control summary stats)
+  // Build nav + summary
   const filters = buildFilters(d.matches);
-  const tabsHtml = filters.map(f =>
-    `<button class="filter-tab${_filter === f.key ? ' active' : ''}" data-f="${f.key}" onclick="setFilter('${f.key}')">${f.label}</button>`
-  ).join('');
-  html += `<div class="section-header" style="margin-bottom:16px">
-    <div style="font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Filter</div>
-    <div class="filter-tabs">${tabsHtml}</div>
-  </div>
-  <div id="summary-section"></div>`;
+  renderNav(filters);
+  html += `<div id="summary-section"></div>`;
 
   // Rank
   if (d.rank) {
