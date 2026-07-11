@@ -6,7 +6,7 @@ A local desktop dashboard for tracking your MTG Arena match history, rank, and i
 
 ## Features
 
-- Win/loss record per session and overall
+- All-time win/loss record — match history persists across MTGA's log rotation
 - Constructed and limited rank
 - Inventory: gold, gems, wildcards
 - Recent match table with opponent names and formats
@@ -81,6 +81,8 @@ MTG Arena writes structured JSON events to a local log file:
 - Windows: `%USERPROFILE%\AppData\LocalLow\Wizards Of The Coast\MTGA\Player.log`
 
 When you click Refresh, the app's main process reads both `Player.log` and `Player-prev.log` (the previous session) to extract match results, rank, and inventory, plus queries MTG Arena's local card database for deck color/mana curve stats. No network requests are made.
+
+Because MTG Arena rotates those logs, each refresh also merges the parsed matches (deduplicated by match ID) into a local `history.json` in the app's user-data folder, so your all-time history survives log rotation. Delete that file if you ever want to reset your stats.
 
 ## Privacy
 

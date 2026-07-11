@@ -237,7 +237,11 @@ function matchTableHtml(matches) {
       <td style="color:var(--muted)">${m.deckName || '—'}</td>
     </tr>`;
   });
-  return html + `</tbody></table>`;
+  html += `</tbody></table>`;
+  if (matches.length > 50) {
+    html += `<div style="color:var(--muted);font-size:0.8rem;padding:10px 4px;text-align:center">Showing latest 50 of ${matches.length} all-time matches</div>`;
+  }
+  return html;
 }
 
 function renderProfilePage(d) {

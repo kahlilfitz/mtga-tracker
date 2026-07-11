@@ -1,3 +1,4 @@
+import { app } from "electron";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -431,6 +432,65 @@ function parseLog(lines: string[]): ParsedLog {
   return { myPlayerId, matches, rank, inventory, deckListByEvent, deckListById };
 }
 
+// --- Persistent all-time history ---------------------------------------
+// MTGA rotates Player.log/Player-prev.log, so anything older than the last
+// two sessions disappears from the logs. Every reparse merges what the logs
+// contain into history.json so the dashboard keeps all-time data.
+
+const STORE_VERSION = 1;
+
+interface HistoryStore {
+  version: number;
+  matches: Match[];
+  deckListByEvent: Record<string, Record<number, number>>;
+  deckListById: Record<string, Record<number, number>>;
+  rank: any;
+  inventory: any;
+}
+
+function emptyStore(): HistoryStore {
+  return { version: STORE_VERSION, matches: [], deckListByEvent: {}, deckListById: {}, rank: null, inventory: null };
+}
+
+function historyPath(): string {
+  return path.join(app.getPath("userData"), "history.json");
+}
+
+function loadStore(): HistoryStore {
+  try {
+    const raw = JSON.parse(fs.readFileSync(historyPath(), "utf-8"));
+    if (raw?.version !== STORE_VERSION || !Array.isArray(raw.matches)) return emptyStore();
+    return { ...emptyStore(), ...raw };
+  } catch {
+    return emptyStore();
+  }
+}
+
+function saveStore(store: HistoryStore): void {
+  try {
+    const file = historyPath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = file + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(store));
+    fs.renameSync(tmp, file); // atomic swap so a crash mid-write can't corrupt history
+  } catch {
+    // best-effort — the dashboard still renders whatever the logs contain
+  }
+}
+
+function matchKey(m: Match): string {
+  return m.matchId || `${m.timestamp}|${m.opponentName}|${m.format}`;
+}
+
+function mergeMatches(stored: Match[], fresh: Match[]): Match[] {
+  // Map preserves first-insertion order, so stored history keeps its
+  // chronological position while overlapping matches get updated in place.
+  const byKey = new Map<string, Match>();
+  for (const m of stored) byKey.set(matchKey(m), m);
+  for (const m of fresh) byKey.set(matchKey(m), m);
+  return Array.from(byKey.values());
+}
+
 function longestStreak(matches: Match[]): { win: number; loss: number } {
   const best = { win: 0, loss: 0 };
   const cur = { win: 0, loss: 0 };
@@ -544,23 +604,30 @@ export async function buildData(): Promise<any> {
   const lines = [...readLines(PREV_LOG_PATH), ...readLines(LOG_PATH)];
   const parsed = parseLog(lines);
 
-  const matches = parsed.matches;
+  const store = loadStore();
+  const matches = mergeMatches(store.matches, parsed.matches);
+  const deckListByEvent = { ...store.deckListByEvent, ...parsed.deckListByEvent };
+  const deckListById = { ...store.deckListById, ...parsed.deckListById };
+  const rank = parsed.rank ?? store.rank;
+  const inventory = parsed.inventory ?? store.inventory;
+  saveStore({ version: STORE_VERSION, matches, deckListByEvent, deckListById, rank, inventory });
+
   const wins = matches.filter((m) => m.result === "win").length;
   const losses = matches.filter((m) => m.result === "loss").length;
-  const drafts = await buildDrafts(matches, parsed.deckListByEvent, parsed.deckListById);
+  const drafts = await buildDrafts(matches, deckListByEvent, deckListById);
 
   return {
     generated: new Date().toISOString(),
-    detailedLogsEnabled: !!(matches.length || parsed.rank || parsed.inventory),
+    detailedLogsEnabled: !!(matches.length || rank || inventory),
     summary: {
       wins,
       losses,
       total: matches.length,
       winRate: matches.length ? Math.round((wins / matches.length) * 1000) / 10 : 0,
     },
-    rank: parsed.rank,
-    inventory: parsed.inventory,
-    matches: matches.slice(-100),
+    rank,
+    inventory,
+    matches,
     drafts,
   };
 }
