@@ -209,7 +209,7 @@ function groupKey(fmt) {
   return 'ladder';
 }
 
-function matchStatsHtml(matches) {
+function matchStatsHtml(matches, extraCards = '') {
   const wins = matches.filter(m => m.result === 'win').length;
   const losses = matches.filter(m => m.result === 'loss').length;
   const total = matches.length;
@@ -222,15 +222,25 @@ function matchStatsHtml(matches) {
       <div class="sub">${wins}W – ${losses}L of ${total} matches</div>
     </div>
     <div class="card"><div class="label">Matches</div><div class="value">${total}</div></div>
+    ${extraCards}
   </div>`;
+}
+
+function fmtDateTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(Number(ts));
+  if (isNaN(d.getTime())) return '—';
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function matchTableHtml(matches) {
   if (matches.length === 0) return `<div class="no-data">No matches recorded.</div>`;
-  let html = `<table><thead><tr><th>#</th><th>Result</th><th>Type</th><th>Opponent</th><th>Deck</th></tr></thead><tbody>`;
+  let html = `<table><thead><tr><th>#</th><th>Date</th><th>Result</th><th>Type</th><th>Opponent</th><th>Deck</th></tr></thead><tbody>`;
   matches.slice(0, 50).forEach((m, i) => {
     html += `<tr>
       <td style="color:var(--muted)">${matches.length - i}</td>
+      <td style="color:var(--muted);font-size:0.8rem;white-space:nowrap">${fmtDateTime(m.timestamp)}</td>
       <td class="result-${m.result}">${m.result.toUpperCase()}</td>
       <td style="color:var(--muted);font-size:0.8rem">${formatLabel(m.format)}</td>
       <td>${m.opponentName || '—'}</td>
@@ -287,7 +297,10 @@ function renderProfilePage(d) {
 
 function renderDraftPage(d) {
   if (d.drafts.length === 0) return `<div class="no-data">No draft events recorded.</div>`;
-  return d.drafts.map(renderDraftCard).join('');
+  const draftMatches = d.drafts.flatMap(dr => dr.matches);
+  const stats = matchStatsHtml(draftMatches,
+    `<div class="card"><div class="label">Draft Events</div><div class="value">${d.drafts.length}</div></div>`);
+  return stats + d.drafts.map(renderDraftCard).join('');
 }
 
 function renderFormatPage(d, key) {
@@ -410,9 +423,14 @@ function renderDraftCard(dr) {
   const wr = total ? Math.round(dr.wins / total * 100) : 0;
   const recordColor = dr.wins > dr.losses ? 'var(--green)' : dr.losses > dr.wins ? 'var(--red)' : 'var(--text)';
 
-  const trail = dr.matches.map(m =>
-    `<div class="game-dot ${m.result}" title="${m.result === 'win' ? 'W' : 'L'} vs ${m.opponentName}">${m.result === 'win' ? 'W' : 'L'}</div>`
-  ).join('');
+  const trail = dr.matches.map(m => {
+    const dt = fmtDateTime(m.timestamp);
+    const [datePart, timePart] = dt === '—' ? ['—', ''] : dt.split(' ');
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+      <div class="game-dot ${m.result}" title="${m.result === 'win' ? 'W' : 'L'} vs ${m.opponentName} — ${dt}">${m.result === 'win' ? 'W' : 'L'}</div>
+      <div style="font-size:0.6rem;color:var(--muted);text-align:center;line-height:1.4">${datePart}<br>${timePart}</div>
+    </div>`;
+  }).join('');
 
   const cs = dr.cardStats;
 
