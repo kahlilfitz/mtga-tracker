@@ -123,7 +123,7 @@ document.addEventListener('mousemove', e => {
     tip.style.top  = (y + h > window.innerHeight ? e.clientY - h - 8 : y) + 'px';
   }
 });
-const _curveData = {};
+let _curveData = {};
 let _curveId = 0;
 
 function showCurveTip(cmc, bucket) {
@@ -292,6 +292,11 @@ function renderFormatPage(d, key) {
 }
 
 function renderMain(d) {
+  // Drop tooltip data from the previous render so it doesn't accumulate
+  // (and pin old _data snapshots) across refreshes and page switches.
+  _curveData = {};
+  _curveId = 0;
+  hideCurveTip();
   let html = '';
   if (_page === 'profile')     html = renderProfilePage(d);
   else if (_page === 'draft')  html = renderDraftPage(d);

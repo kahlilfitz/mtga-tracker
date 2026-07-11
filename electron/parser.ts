@@ -115,10 +115,7 @@ interface CurveCard { name: string; qty: number; rarity?: string }
 interface CurveBucket { total: number; rarities: Record<string, number>; cards: CurveCard[] }
 interface DeckStats { colors: Record<string, number>; curve: Record<string, CurveBucket> }
 
-async function deckStats(deck: Record<number, number>): Promise<DeckStats> {
-  const allIds = new Set(Object.keys(deck).map(Number));
-  const cardData = await loadCardData(allIds);
-
+function deckStats(deck: Record<number, number>, cardData: Map<number, CardInfo>): DeckStats {
   const colorCounts: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   const curveDetail = new Map<number, Record<string, CurveCard[]>>();
 
@@ -499,10 +496,21 @@ async function buildDrafts(
     r.matches.push(m);
   }
 
-  for (const [key, run] of runs) {
-    const [fmt, deckId] = key.split(" ");
+  // Load card data once for every deck across all runs — the card DB is a
+  // large sql.js (WASM) database, so opening it per run bloats the heap.
+  const deckLists = new Map<string, Record<number, number>>();
+  const allIds = new Set<number>();
+  for (const key of runs.keys()) {
+    const [fmt, deckId] = key.split("\0");
     const deckList = deckListById[deckId] || deckListByEvent[fmt] || {};
-    run.cardStats = Object.keys(deckList).length ? await deckStats(deckList) : null;
+    deckLists.set(key, deckList);
+    for (const id of Object.keys(deckList)) allIds.add(Number(id));
+  }
+  const cardData = await loadCardData(allIds);
+
+  for (const [key, run] of runs) {
+    const deckList = deckLists.get(key)!;
+    run.cardStats = Object.keys(deckList).length ? deckStats(deckList, cardData) : null;
     const streak = longestStreak(run.matches);
     run.bestWinStreak = streak.win;
     run.worstLossStreak = streak.loss;
